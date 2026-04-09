@@ -5,6 +5,7 @@ fail_fast=true
 [xal]
 dev_path="/dev/loop7"
 mountpoint="/tmp/xal_testing"
+build_dir="../build"
 
 [xal.artifacts]
 path="/tmp/artifacts"

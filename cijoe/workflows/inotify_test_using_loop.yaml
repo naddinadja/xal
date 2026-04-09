@@ -1,0 +1,45 @@
+---
+doc: |
+  Test xal inotify (FIEMAP + dirty detection) using a loopback device
+
+  Steps:
+    1. Create a file-backed loop device (idempotent: tears down any previous setup)
+    2. Format the loop device with XFS
+    3. Mount the XFS filesystem and leave it mounted for the duration of the tests
+    4. Run the pytest inotify tests:
+       - test_inotify_on_tmpfs      -> C binary with mkdtemp on /tmp (smoke test)
+       - test_inotify_on_xfs        -> C binary pointed at XFS mountpoint
+    5. Unmount the XFS filesystem
+
+  Prerequisites:
+    - xal is built:  make build
+    - loop module:   sudo modprobe loop max_loop=8
+
+steps:
+- name: prep_bdev
+  uses: prep_loop
+  with:
+    dev-path: '{{ config.xal.dev_path }}'
+    size-in-gb: 1
+
+- name: prep_fs
+  uses: prep_xfs
+  with:
+    dev-path: '{{ config.xal.dev_path }}'
+    mountpoint: '{{ config.xal.mountpoint }}'
+
+- name: prep_mount
+  uses: prep_inotify
+  with:
+    dev-path: '{{ config.xal.dev_path }}'
+    mountpoint: '{{ config.xal.mountpoint }}'
+
+- name: test_inotify
+  uses: core.testrunner
+  with:
+    run_local: true
+    random_order: false
+    args: "tests/test_inotify.py"
+
+- name: teardown
+  run: sudo umount '{{ config.xal.mountpoint }}' || true
