@@ -1,6 +1,7 @@
 test_sources = [
   'test_pool.c',
   'test_pool_shm.c',
+  'test_xal.c',
 ]
 
 foreach src : test_sources
