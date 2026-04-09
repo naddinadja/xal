@@ -36,7 +36,9 @@ jobs:
       run: make configure
 
     - name: Build
-      run: make build
+      run: |
+        make build
+        make unit-test
 
     - name: Install
       run: sudo make install
