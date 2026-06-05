@@ -333,6 +333,9 @@ xal_walk(struct xal *xal, struct xal_inode *inode, xal_walk_cb cb_func, void *cb
 struct xal_inode *
 xal_get_root(struct xal *xal)
 {
+	if (xal->root_idx == XAL_POOL_IDX_NONE) {
+		return NULL;
+	}
 	return xal_inode_at(xal, xal->root_idx);
 }
 
@@ -672,6 +675,11 @@ xal_get_inode(struct xal *xal, char *path, struct xal_inode **inode)
 	if (atomic_load(xal->dirty)) {
 		XAL_DEBUG("FAILED: File system has changed");
 		return -ESTALE;
+	}
+
+	if (xal->root_idx == XAL_POOL_IDX_NONE) {
+		XAL_DEBUG("FAILED: Missing call to xal_index()");
+		return -EINVAL;
 	}
 
 	be = (struct xal_backend_base *)&xal->be;
