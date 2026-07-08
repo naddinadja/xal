@@ -1,5 +1,5 @@
 project('xal', 'c',
-  version: '0.3.1',
+  version: '0.3.2',
   meson_version: '>=0.55.0',
   default_options: [
     'c_std=gnu11',
