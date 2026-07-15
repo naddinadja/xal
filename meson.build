@@ -13,17 +13,8 @@ project('xal', 'c',
 pkg = import('pkgconfig')
 cc = meson.get_compiler('c')
 
-conf_data = configuration_data()
-conf_data.set('XAL_DEBUG_ENABLED', get_option('buildtype') == 'debug' and get_option('debug-logging'))
-conf = configure_file(
-  configuration : conf_data,
-  output : 'xal_config.h',
-)
-
 xallib_libdir = get_option('libdir')
 xallib_rpath = get_option('prefix') + '/' + xallib_libdir
-
-add_project_arguments(['-include', 'xal_config.h'], language: 'c')
 
 rt_dep = cc.find_library('rt', required: true)
 if not cc.has_function('clock_gettime', prefix: '#include <time.h>', dependencies: rt_dep)
@@ -35,6 +26,31 @@ xnvme_dep = dependency(
   version: '>=0.7.0',
   required: true
 )
+
+xallib_deps = [
+  rt_dep,
+  xnvme_dep,
+]
+
+public_headers = files(
+  'include/libxal.h',
+  'include/libxal_util.h',
+)
+
+sources = files(
+  'src/xal.c',
+  'src/xal_be_fiemap.c',
+  'src/xal_be_fiemap_inotify.c',
+  'src/xal_bpf.c',
+  'src/xal_be_xfs.c',
+  'src/xal_pool.c',
+  'src/pp.c',
+  'src/utils.c'
+)
+
+xal_sources = [sources]
+
+include_dirs = include_directories('include', 'tp')
 
 # BPF: build dependencies
 libbpf_dep = dependency('libbpf', required: true)
@@ -107,34 +123,26 @@ skel = custom_target(
   capture : true
 )
 
-xallib_deps = [
-  rt_dep,
-  xnvme_dep,
+xallib_deps += [
   libbpf_dep,
   libelf_dep,
   zlib_dep,
 ]
 
-public_headers = files(
-  'include/libxal.h',
-  'include/libxal_util.h',
+xal_sources += [skel]
+
+conf_data = configuration_data()
+conf_data.set('XAL_DEBUG_ENABLED', get_option('buildtype') == 'debug' and get_option('debug-logging'))
+
+conf = configure_file(
+  configuration : conf_data,
+  output : 'xal_config.h',
 )
 
-sources = files(
-  'src/xal.c',
-  'src/xal_be_fiemap.c',
-  'src/xal_be_fiemap_inotify.c',
-  'src/xal_bpf.c',
-  'src/xal_be_xfs.c',
-  'src/xal_pool.c',
-  'src/pp.c',
-  'src/utils.c'
-)
-
-include_dirs = include_directories('include', 'tp')
+add_project_arguments(['-include', 'xal_config.h'], language: 'c')
 
 xal_library = library('xal',
-  sources: [skel, sources],
+  sources: xal_sources,
   dependencies: xallib_deps,
   include_directories: include_dirs,
   install: true,
@@ -154,3 +162,4 @@ subdir('tools')
 pkg.generate(xal_library)
 
 install_headers(public_headers)
+
