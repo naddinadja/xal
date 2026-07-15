@@ -444,6 +444,7 @@ xal_get_extents(struct xal *xal, char *path, struct xal_extents **extents);
 int
 xal_get_dentries(struct xal *xal, char *path, struct xal_dentries **dentries);
 
+#ifdef XAL_BPF_ENABLED
 /**
  * Start a background thread polling the BPF ring buffer for filesystem events
  * (e.g. unfreeze) on the block device.
@@ -484,4 +485,6 @@ xal_bpf_start_poll_thread(struct xal *xal);
  */
 int
 xal_bpf_stop_poll_thread(struct xal *xal);
+#endif /* XAL_BPF_ENABLED */
+
 #endif /* LIBXAL_H */

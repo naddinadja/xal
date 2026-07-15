@@ -1,3 +1,5 @@
+#ifdef XAL_BPF_ENABLED
+
 #include <errno.h>
 #include <fcntl.h>
 #include <khash.h>
@@ -287,3 +289,5 @@ xal_bpf_stop_poll_thread(struct xal *xal)
 
 	return 0;
 }
+
+#endif /* XAL_BPF_ENABLED */
