@@ -48,9 +48,11 @@ xal_be_fiemap_close(struct xal *xal)
 	if (be->inotify) {
 		xal_be_fiemap_inotify_close(be->inotify);
 	} else {
+#ifdef XAL_BPF_ENABLED
 		if (be->bpf) {
 			xal_be_fiemap_bpf_close(be->bpf);
 		}
+#endif /* XAL_BPF_ENABLED */
 
 		int fd = open(be->mountpoint, O_RDONLY | O_DIRECTORY);
 
@@ -205,6 +207,7 @@ xal_be_fiemap_open(struct xal **xal, char *mountpoint, struct xal_opts *opts)
 			goto failed;
 		}
 	} else {
+#ifdef XAL_BPF_ENABLED
 		// since fs is mounted without a watch mode, freeze it
 		// + init bpf thread to listen to unfreeze events
 		struct xal_bpf *bpf = calloc(1, sizeof(struct xal_bpf));
@@ -229,6 +232,7 @@ xal_be_fiemap_open(struct xal **xal, char *mountpoint, struct xal_opts *opts)
 		}
 
 		be->bpf = bpf;
+#endif /* XAL_BPF_ENABLED */
 
 		int fd = open(mountpoint, O_RDONLY | O_DIRECTORY);
 
@@ -251,6 +255,7 @@ xal_be_fiemap_open(struct xal **xal, char *mountpoint, struct xal_opts *opts)
 		}
 		close(fd);
 
+#ifdef XAL_BPF_ENABLED
 		err = xal_be_fiemap_bpf_rb_init(cand, be->bpf);
 		if (err) {
 			XAL_DEBUG("FAILED: xal_be_fiemap_bpf_rb_init(); err(%d)", err);
@@ -262,6 +267,7 @@ xal_be_fiemap_open(struct xal **xal, char *mountpoint, struct xal_opts *opts)
 			XAL_DEBUG("FAILED: xal_bpf_start_poll_thread(); err(%d)", err);
 			goto failed;
 		}
+#endif /* XAL_BPF_ENABLED */
 	}
 
 	nallocated = retrieve_total_entries(be->mountpoint);

@@ -21,4 +21,5 @@ xal_be_fiemap_bpf_init(struct xal_bpf *bpf);
 
 void
 xal_be_fiemap_bpf_close(struct xal_bpf *bpf);
-#endif
+
+#endif /* XAL_BPF_H */

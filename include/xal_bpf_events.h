@@ -37,4 +37,5 @@ struct xal_bpf_ctx {
 	uint32_t dev_minor;
 	uint32_t fs_block_size;
 };
-#endif
+
+#endif /* XAL_BPF_EVENTS_H */
