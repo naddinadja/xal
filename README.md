@@ -23,6 +23,8 @@ Dependencies:
 
 - `xnvme` >= 0.7.0 -- must be installed and visible to `pkg-config`
 - `librt`
+
+And optionally,
 - `libbpf`, `libelf`, `zlib` (for the BPF event listener)
 - `clang`, `llvm`, and `bpftool` (to compile BPF objects and generate skeletons)
 - A kernel exposing BTF at `/sys/kernel/btf/vmlinux` (i.e. built with `CONFIG_DEBUG_INFO_BTF=y`)
@@ -59,16 +61,10 @@ tree. The filesystem **must** be mounted. This backend provides a simpler
 integration and supports path-based inode and extent lookup via `xal_get_inode()`/
 `xal_get_extents()`.
 
-#### Inotify watching
+#### File system changes
 
-When opened with a `watch_mode` other than `XAL_WATCHMODE_NONE`, an
-inotify watch is registered for every directory during `xal_index()`.
-A background thread started with `xal_watch_filesystem()` then processes
-events. The watched event mask per directory is: `IN_CREATE`,
-`IN_DELETE`, `IN_MOVE`, `IN_MODIFY`, `IN_ATTRIB`,
-`IN_CLOSE_WRITE`, and `IN_UNMOUNT`.
-
-#### Watch modes
+Using inotify and BPF, **xal** monitors changes to the indexed files if a
+fitting watchmode is set.
 
 **`XAL_WATCHMODE_NONE`**
 : No inotify setup. The xal struct will never be marked dirty automatically.
@@ -84,6 +80,16 @@ events. The watched event mask per directory is: `IN_CREATE`,
   call, coordinated with `seq_lock` so concurrent readers remain safe.
   Structural changes (`IN_CREATE`, `IN_DELETE`, `IN_MOVE`) still mark
   the struct dirty, as they require a full re-index.
+
+When opened with a `watch_mode` other than `XAL_WATCHMODE_NONE`, an
+inotify watch is registered for every directory during `xal_index()`.
+A background thread started with `xal_watch_filesystem()` then processes
+events. The watched event mask per directory is: `IN_CREATE`,
+`IN_DELETE`, `IN_MOVE`, `IN_MODIFY`, `IN_ATTRIB`,
+`IN_CLOSE_WRITE`, and `IN_UNMOUNT`.
+
+BPF is used to monitor changes made by the filesystem itself. However, this module
+is only loaded if the dependencies are present.
 
 #### File lookup modes
 
