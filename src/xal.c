@@ -226,6 +226,56 @@ failed:
 }
 
 /**
+ * Resolve opts->shm_name to either an attached secondary or a name to claim
+ *
+ * @param dev      Device to hand to a secondary; NULL when opening without one
+ * @param xal      Output, written only when a secondary is attached
+ * @param opts     Caller options; opts->shm_name selects the region
+ * @param attached Output: true when *xal holds a secondary and the caller is done
+ *
+ * @return On success a 0 is returned. On error, negative errno is returned to indicate the error.
+ */
+static int
+attach_or_claim_shm(struct xnvme_dev *dev, struct xal **xal, struct xal_opts *opts, bool *attached)
+{
+	int err;
+
+	*attached = false;
+
+	if (!opts->shm_name) {
+		return 0;
+	}
+
+	err = state_shm_probe(opts->shm_name);
+	if (err && (err != -ENOENT)) {
+		XAL_DEBUG("FAILED: state_shm_probe(%s); err(%d)", opts->shm_name, err);
+		return err;
+	}
+
+	if (err == -ENOENT) {
+		return 0;
+	}
+
+	err = attach_from_shm(dev, xal, opts);
+	if (!err) {
+		*attached = true;
+		return 0;
+	}
+
+	/* Anything but the region having gone away belongs to the caller; when the owner
+	 * unlinked it between the probe and the attach, the name is free again and this
+	 * process is the one to claim it. */
+	if (err != -ENOENT) {
+		return err;
+	}
+
+	XAL_DEBUG("INFO: shm_name(%s) released while attaching, opening as primary",
+		  opts->shm_name);
+
+	return 0;
+}
+
+/**
  * Create the shared state region for the given shm_name and publish it
  *
  * A secondary attaches using this region alone, so it carries the backend, superblock and
@@ -303,6 +353,7 @@ xal_open(struct xnvme_dev *dev, struct xal **xal, struct xal_opts *opts)
 	struct xal_opts opts_default = {0};
 	char mountpoint[XAL_PATH_MAXLEN + 1] = {0};
 	uint8_t fidx;
+	bool attached;
 	int err;
 
 	if (!dev) {
@@ -311,6 +362,15 @@ xal_open(struct xnvme_dev *dev, struct xal **xal, struct xal_opts *opts)
 
 	if (!opts) {
 		opts = &opts_default;
+	}
+
+	// Auto-detect whether it's primary or secondary procrole
+	err = attach_or_claim_shm(dev, xal, opts, &attached);
+	if (err) {
+		return err;
+	}
+	if (attached) {
+		return 0;
 	}
 
 	ident = xnvme_dev_get_ident(dev);
