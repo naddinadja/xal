@@ -135,6 +135,166 @@ retrieve_mountpoint(const char *dev_uri, char *mntpnt)
 	return 0;
 }
 
+/**
+ * Check whether another process holds an index under the given base name
+ *
+ * The _state region is unlinked after the pools it describes, so its absence means every region
+ * under this name is gone and the name is free to claim. Only -ENOENT says that; every other
+ * error belongs to the caller, since proceeding as primary on e.g. -EACCES would fail later with
+ * a misleading -EEXIST.
+ *
+ * @return 0 when the region exists, -ENOENT when it does not, negative errno on error.
+ */
+static int
+state_shm_probe(const char *shm_name)
+{
+	char shm_name_state[XAL_PATH_MAXLEN + 9];
+	int fd;
+
+	snprintf(shm_name_state, sizeof(shm_name_state), "%s_state", shm_name);
+
+	fd = shm_open(shm_name_state, O_RDONLY, 0);
+	if (fd < 0) {
+		return -errno;
+	}
+	close(fd);
+
+	return 0;
+}
+
+/**
+ * Attach to the index published under opts->shm_name as a secondary
+ *
+ * How the index was built is the primary's decision, so options describing that -- the backend,
+ * the mountpoint, the subtree scope and the watch mode -- cannot be honoured here. Rather than
+ * hand back a handle that quietly ignores them, they are rejected: either they agree with what
+ * the primary did, in which case they are redundant, or they do not, in which case the caller is
+ * not getting what it asked for. Only opts->file_lookupmode is a per-process choice.
+ */
+static int
+attach_from_shm(struct xnvme_dev *dev, struct xal **xal, struct xal_opts *opts)
+{
+	struct xal_backend_base *be;
+	int err;
+
+	if (opts->watch_mode || opts->subtree) {
+		XAL_DEBUG("FAILED: watch_mode/subtree are for the process building the index");
+		return -EINVAL;
+	}
+
+	err = xal_from_shm(opts->shm_name, xal);
+	if (err) {
+		XAL_DEBUG("FAILED: xal_from_shm(%s); err(%d)", opts->shm_name, err);
+		return err;
+	}
+
+	be = (struct xal_backend_base *)&(*xal)->be;
+
+	if (opts->be && (be->type != opts->be)) {
+		XAL_DEBUG("FAILED: shm_name(%s) was indexed with backend(%d), not backend(%d)",
+			  opts->shm_name, be->type, opts->be);
+		err = -EINVAL;
+		goto failed;
+	}
+
+	if (opts->mountpoint && strlen(opts->mountpoint) &&
+	    strcmp(opts->mountpoint, (*xal)->state->mountpoint)) {
+		XAL_DEBUG("FAILED: shm_name(%s) holds an index of mountpoint(%s)", opts->shm_name,
+			  (*xal)->state->mountpoint);
+		err = -EINVAL;
+		goto failed;
+	}
+
+	if ((opts->file_lookupmode == XAL_FILE_LOOKUPMODE_HASHMAP) &&
+	    (be->type == XAL_BACKEND_FIEMAP)) {
+		err = xal_build_lookup_hashmap(*xal);
+		if (err) {
+			XAL_DEBUG("FAILED: xal_build_lookup_hashmap(); err(%d)", err);
+			goto failed;
+		}
+	}
+
+	(*xal)->dev = dev;
+
+	return 0;
+
+failed:
+	xal_close(*xal);
+	*xal = NULL;
+
+	return err;
+}
+
+/**
+ * Create the shared state region for the given shm_name and publish it
+ *
+ * A secondary attaches using this region alone, so it carries the backend, superblock and
+ * mountpoint. On failure nothing is left behind under the name.
+ */
+static int
+publish_shared_state(struct xal *xal, const char *shm_name, const char *mountpoint,
+		     enum xal_backend be)
+{
+	char shm_name_state[XAL_PATH_MAXLEN + 9];
+	struct xal_shared_state *state;
+	int fd, err;
+
+	snprintf(shm_name_state, sizeof(shm_name_state), "%s_state", shm_name);
+
+	fd = shm_open(shm_name_state, O_CREAT | O_RDWR | O_EXCL, 0644);
+	if (fd < 0) {
+		XAL_DEBUG("FAILED: shm_open(%s); errno(%d)", shm_name_state, errno);
+		return -errno;
+	}
+
+	err = ftruncate(fd, sizeof(struct xal_shared_state));
+	if (err) {
+		XAL_DEBUG("FAILED: ftruncate(); errno(%d)", errno);
+		err = -errno;
+		close(fd);
+		shm_unlink(shm_name_state);
+		return err;
+	}
+
+	state =
+	    mmap(NULL, sizeof(struct xal_shared_state), PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+	close(fd);
+	if (state == MAP_FAILED) {
+		XAL_DEBUG("FAILED: mmap(); errno(%d)", errno);
+		err = -errno;
+		shm_unlink(shm_name_state);
+		return err;
+	}
+
+	xal->state_shm_name = strdup(shm_name_state);
+	if (!xal->state_shm_name) {
+		XAL_DEBUG("FAILED: strdup(); errno(%d)", errno);
+		munmap(state, sizeof(struct xal_shared_state));
+		shm_unlink(shm_name_state);
+		return -ENOMEM;
+	}
+
+	xal->state = state;
+	xal->index_state = &state->index_state;
+	xal->seq_lock = &state->seq_lock;
+
+	/* ftruncate() zero-fills, and XAL_STATE_CLEAN is zero, so the region would read as
+	 * an up-to-date index before one has been built. Mark it dirty here; xal_index()
+	 * clears it once there is something to attach to. */
+	atomic_store(&state->index_state, XAL_STATE_DIRTY);
+
+	state->type = be;
+	state->sb = xal->sb;
+	strncpy(state->mountpoint, mountpoint, XAL_PATH_MAXLEN - 1);
+	state->mountpoint[XAL_PATH_MAXLEN - 1] = '\0';
+
+	/* Published last: the region is reachable under its name from the moment shm_open()
+	 * returns, so this marker is what tells a reader the fields above are written. */
+	atomic_store_explicit(&state->ready, XAL_SHARED_STATE_READY, memory_order_release);
+
+	return 0;
+}
+
 int
 xal_open(struct xnvme_dev *dev, struct xal **xal, struct xal_opts *opts)
 {
@@ -232,55 +392,13 @@ xal_open(struct xnvme_dev *dev, struct xal **xal, struct xal_opts *opts)
 	(*xal)->sb.lba_blksze = 1U << ns->lbaf[fidx].ds;
 
 	if (opts->shm_name) {
-		char shm_name_state[XAL_PATH_MAXLEN + 9];
-		struct xal_shared_state *state;
-		int fd;
-
-		snprintf(shm_name_state, sizeof(shm_name_state), "%s_state", opts->shm_name);
-
-		fd = shm_open(shm_name_state, O_CREAT | O_RDWR | O_EXCL, 0644);
-		if (fd < 0) {
-			XAL_DEBUG("FAILED: shm_open(%s); errno(%d)", shm_name_state, errno);
-			xal_close(*xal);
-			return -errno;
-		}
-
-		err = ftruncate(fd, sizeof(struct xal_shared_state));
+		err = publish_shared_state(*xal, opts->shm_name, mountpoint, opts->be);
 		if (err) {
-			XAL_DEBUG("FAILED: ftruncate(); errno(%d)", errno);
-			err = -errno;
-			close(fd);
-			shm_unlink(shm_name_state);
+			XAL_DEBUG("FAILED: publish_shared_state(); err(%d)", err);
 			xal_close(*xal);
+			*xal = NULL;
 			return err;
 		}
-
-		state = mmap(NULL, sizeof(struct xal_shared_state), PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
-		close(fd);
-		if (state == MAP_FAILED) {
-			XAL_DEBUG("FAILED: mmap(); errno(%d)", errno);
-			err = -errno;
-			shm_unlink(shm_name_state);
-			xal_close(*xal);
-			return err;
-		}
-
-		(*xal)->state_shm_name = strdup(shm_name_state);
-		if (!(*xal)->state_shm_name) {
-			XAL_DEBUG("FAILED: strdup(); errno(%d)", errno);
-			munmap(state, sizeof(struct xal_shared_state));
-			xal_close(*xal);
-			return -ENOMEM;
-		}
-
-		(*xal)->state = state;
-		(*xal)->index_state = &state->index_state;
-		(*xal)->seq_lock = &state->seq_lock;
-
-		state->type = opts->be;
-		state->sb = (*xal)->sb;
-		strncpy(state->mountpoint, mountpoint, XAL_PATH_MAXLEN - 1);
-		state->mountpoint[XAL_PATH_MAXLEN - 1] = '\0';
 	}
 
 	return 0;
