@@ -298,6 +298,10 @@ xal_close(struct xal *xal);
 /**
  * Retrieve inodes from disk and decode the on-disk-format of the retrieved data
  *
+ * Only the process that builds the index may call this; it returns -EINVAL on a handle obtained
+ * from xal_from_shm(), or from an xal_open() that attached as a secondary. This holds for both
+ * backends, also XAL_BACKEND_FIEMAP where the call otherwise does nothing.
+ *
  * @param xal Pointer to the xal
  *
  * @returns On success, 0 is returned. On error, negative errno is returned to indicate the error.
