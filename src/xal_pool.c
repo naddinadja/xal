@@ -68,35 +68,39 @@ xal_pool_map(struct xal_pool *pool, size_t reserved, size_t allocated, size_t el
 	if (shm_name) {
 		int fd;
 
+		pool->shm_name = strdup(shm_name);
+		if (!pool->shm_name) {
+			XAL_DEBUG("FAILED: strdup(); errno(%d)", errno);
+			return -errno;
+		}
+
 		fd = shm_open(shm_name, O_CREAT | O_RDWR | O_EXCL, 0644);
 		if (fd < 0) {
 			XAL_DEBUG("FAILED: shm_open(%s); errno(%d)", shm_name, errno);
-			return -errno;
+			err = -errno;
+			goto failed_name;
 		}
 
 		err = ftruncate(fd, nbytes);
 		if (err) {
 			XAL_DEBUG("FAILED: ftruncate(); errno(%d)", errno);
+			err = -errno;
 			close(fd);
-			return -errno;
+			goto failed_created;
 		}
 
 		pool->memory = mmap(NULL, nbytes, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
 		close(fd);
 		if (pool->memory == MAP_FAILED) {
 			XAL_DEBUG("FAILED: mmap(); errno(%d)", errno);
-			return -errno;
+			err = -errno;
+			pool->memory = NULL;
+			goto failed_created;
 		}
 		memset(pool->memory, 0, nbytes);
 
 		pool->allocated = reserved;
 		pool->growby = reserved;
-		
-		pool->shm_name = strdup(shm_name);
-		if (!pool->shm_name) {
-			XAL_DEBUG("FAILED: strdup(); errbo(%d)", errno);
-			return -errno;
-		}
 	} else {
 		if (allocated > reserved) {
 			XAL_DEBUG("FAILED: xal_pool_map(...); errno(%d)", EINVAL);
@@ -122,6 +126,14 @@ xal_pool_map(struct xal_pool *pool, size_t reserved, size_t allocated, size_t el
 	}
 
 	return 0;
+
+failed_created:
+	shm_unlink(pool->shm_name);
+failed_name:
+	free(pool->shm_name);
+	pool->shm_name = NULL;
+
+	return err;
 }
 
 int
