@@ -610,10 +610,14 @@ xal_be_fiemap_open(struct xal **xal, char *mountpoint, struct xal_opts *opts)
 	cand->sb.blocksize = sb.st_blksize;
 	cand->sb.rootino = sb.st_ino;
 
-	if (opts->shm_name && strlen(opts->shm_name) > XAL_PATH_MAXLEN) {
-		XAL_DEBUG("FAILED: shm_name too long");
-		err = -EINVAL;
-		goto failed;
+	if (opts->shm_name) {		
+		if (strlen(opts->shm_name) > XAL_PATH_MAXLEN) {
+			XAL_DEBUG("FAILED: shm_name too long");
+			err = -EINVAL;
+			goto failed;
+		}
+
+		cand->procrole = XAL_PROCROLE_PRIMARY;
 	}
 
 	shm = NULL;

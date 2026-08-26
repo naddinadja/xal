@@ -31,8 +31,9 @@ respectively::
    /* creates /myapp_xal_inodes and /myapp_xal_extents */
 
 In this mode the full reserved size is committed upfront via ``ftruncate()``
-and ``mmap(MAP_SHARED)``; there is no lazy growth. The objects persist in the
-shared memory filesystem (``/dev/shm`` on Linux) until explicitly removed.
+and ``mmap(MAP_SHARED)``; there is no lazy growth. The objects live in the
+shared memory filesystem (``/dev/shm`` on Linux) and are removed by the
+creating process on ``xal_close()``; see "Process roles" below.
 
 ## Consumer processes: ``xal_from_shm()``
 
@@ -59,3 +60,38 @@ The typical pattern is:
       xal_from_shm(shm_name, &view);
       xal_walk(view, xal_get_root(view), my_callback, NULL);
       xal_close(view);
+
+## Process roles
+
+Every ``struct xal`` carries one of three roles, recorded internally as
+``enum xal_procrole``:
+
+``XAL_PROCROLE_SINGLE``
+   The default. ``xal_open()`` was called without ``shm_name``, so the pools
+   are private anonymous memory and no other process is involved.
+
+``XAL_PROCROLE_PRIMARY``
+   ``xal_open()`` was called with ``shm_name`` set. This handle owns the
+   shared memory objects: it created them, it is the only one allowed to
+   index into them, and it removes them again.
+
+``XAL_PROCROLE_SECONDARY``
+   The handle came from ``xal_from_shm()``. It maps the objects read-only and
+   owns nothing.
+
+The role decides two things:
+
+**Ownership at close.** ``xal_close()`` always unmaps the pools, but only a
+primary (or single) handle also ``shm_unlink()``s the ``_inodes``,
+``_extents`` and ``_state`` objects. A secondary detaches without removing
+anything, so several secondaries may attach and close independently. The
+consequence is that the shared memory objects live as long as the primary
+does: once the primary closes, the names are gone and no new secondary can
+attach, even though already-attached secondaries keep their mapping valid
+until they close.
+
+**Indexing.** ``xal_index()`` returns ``-EINVAL`` on a secondary handle. The
+pools are mapped read-only there, and the index is the primary's to build and
+rebuild. A secondary that finds the view stale — ``xal_from_shm()`` returns
+``-ESTALE`` when it attaches to a region the primary has marked dirty — must
+wait for the primary to re-index rather than re-index itself.

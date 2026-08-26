@@ -280,6 +280,8 @@ xal_dinodes_retrieve(struct xal *xal);
  * backend XAL_BACKEND_XFS.
  * 
  * When called, any index created from previous calls to xal_index() are cleared.
+ * 
+ * This function will fail if given a xal handle obtained from xal_from_shm().
  *
  * @returns On success, 0 is returned. On error, negative errno is returned to indicate the error.
  */

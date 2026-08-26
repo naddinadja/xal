@@ -73,6 +73,7 @@ void
 xal_close(struct xal *xal)
 {
 	struct xal_backend_base *be;
+	bool should_unlink;
 
 	if (!xal) {
 		return;
@@ -83,8 +84,10 @@ xal_close(struct xal *xal)
 		be->close(xal);
 	}
 
-	xal_pool_unmap(&xal->inodes, !xal->shared_view);
-	xal_pool_unmap(&xal->extents, !xal->shared_view);
+	should_unlink = xal->procrole != XAL_PROCROLE_SECONDARY;
+
+	xal_pool_unmap(&xal->inodes, should_unlink);
+	xal_pool_unmap(&xal->extents, should_unlink);
 
 	if (xal->state) {
 		if (xal->state_shm_name) {
@@ -278,7 +281,7 @@ xal_index(struct xal *xal)
 {
 	struct xal_backend_base *be = (struct xal_backend_base *)&xal->be;
 
-	if (xal->shared_view) {
+	if (xal->procrole == XAL_PROCROLE_SECONDARY) {
 		return -EINVAL;
 	}
 
@@ -400,7 +403,7 @@ xal_from_shm(const char *shm_name, struct xal **out)
 		return -ENOMEM;
 	}
 
-	xal->shared_view = true;
+	xal->procrole = XAL_PROCROLE_SECONDARY;
 
 	snprintf(shm_name_inodes, sizeof(shm_name_inodes), "%s_inodes", shm_name);
 	snprintf(shm_name_extents, sizeof(shm_name_extents), "%s_extents", shm_name);
