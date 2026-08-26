@@ -251,6 +251,26 @@ xal_pp(struct xal *xal);
  * utilized to instantiate the 'struct xal' with a subset of the on-disk-format parsed to native
  * format.
  *
+ * When opts->shm_name is set, the name decides which of two things happens. If no index is
+ * published under it, this process becomes the primary: it creates the shared memory regions and
+ * is expected to call xal_index(). If another process has already published an index under that
+ * name, this call attaches to it as a secondary instead, exactly as xal_from_shm() would -- the
+ * device is not read, and the returned xal is read-only, so xal_index() on it returns -EINVAL.
+ * Use xal_get_procrole() to tell the two outcomes apart.
+ *
+ * Attaching is refused with -EINVAL when the options describe an index other than the published
+ * one: a different opts->be or opts->mountpoint, or a opts->watch_mode or opts->subtree, both of
+ * which are decisions belonging to the process that builds the index.
+ *
+ * opts->be is in/out: left zero it is filled in with the detected backend and stays set. A caller
+ * reusing one struct xal_opts across devices must clear it between calls.
+ *
+ * Two error codes mean "not yet, try again" rather than failure, and a caller opening a name
+ * concurrently with its primary should expect them: -EAGAIN while the primary is still setting
+ * the regions up, and -ESTALE between then and the completion of its xal_index(). -EEXIST is the
+ * same situation seen from the other side, where two processes found the name free and this one
+ * lost the race to claim it.
+ *
  * @param dev Pointer to xnvme device handled as retrieved with xnvme_dev_open()
  * @param xal Pointer
  * @param opts Pointer to options, see xal_opts
@@ -259,6 +279,21 @@ xal_pp(struct xal *xal);
  */
 int
 xal_open(struct xnvme_dev *dev, struct xal **xal, struct xal_opts *opts);
+
+/**
+ * Open and decode the file-system meta-data of the mount holding the given device
+ *
+ * As xal_open(), but with no xnvme device. FIEMAP is then the only reachable backend, and
+ * sb.lba_blksze is left unset, so xal_extent_in_lba() returns -EINVAL on the resulting handle.
+ *
+ * @param uri The device to index; it must be mounted, unless opts->mountpoint says where
+ * @param xal Pointer
+ * @param opts Pointer to options, see xal_opts
+ *
+ * @return On success a 0 is returned. On error, negative errno is returned to indicate the error.
+ */
+int
+xal_open_from_uri(const char *uri, struct xal **xal, struct xal_opts *opts);
 
 void
 xal_close(struct xal *xal);
