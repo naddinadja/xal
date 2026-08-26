@@ -737,10 +737,14 @@ xal_be_xfs_open(struct xnvme_dev *dev, struct xal **xal, struct xal_opts *opts)
 		cand->sb.nallocated += be->ags[seqno].agi_count;
 	}
 
-	if (opts->shm_name && strlen(opts->shm_name) > XAL_PATH_MAXLEN) {
-		XAL_DEBUG("FAILED: shm_name too long");
-		err = -EINVAL;
-		goto failed;
+	if (opts->shm_name) {
+		if (strlen(opts->shm_name) > XAL_PATH_MAXLEN) {
+			XAL_DEBUG("FAILED: shm_name too long");
+			err = -EINVAL;
+			goto failed;
+		}
+
+		cand->procrole = XAL_PROCROLE_PRIMARY;
 	}
 
 	shm = NULL;
