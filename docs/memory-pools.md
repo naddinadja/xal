@@ -90,8 +90,14 @@ does: once the primary closes, the names are gone and no new secondary can
 attach, even though already-attached secondaries keep their mapping valid
 until they close.
 
-**Indexing.** ``xal_index()`` returns ``-EINVAL`` on a secondary handle. The
-pools are mapped read-only there, and the index is the primary's to build and
-rebuild. A secondary that finds the view stale — ``xal_from_shm()`` returns
-``-ESTALE`` when it attaches to a region the primary has marked dirty — must
-wait for the primary to re-index rather than re-index itself.
+**Indexing.** ``xal_index()`` and ``xal_dinodes_retrieve()`` both return
+``-EINVAL`` on a secondary handle. The pools are mapped read-only there, and
+the index is the primary's to build and rebuild. ``xal_dinodes_retrieve()`` is
+refused on both backends, not only on XFS where it reads the device: a
+secondary owns no device relationship, and a caller reaching it has put a
+primary-only step outside the role check rather than inside it, which is worth
+being told about whichever backend it happens under.
+
+A secondary that finds the view stale — attaching returns ``-ESTALE`` when the
+region has been marked dirty — must wait for the primary to re-index rather
+than re-index itself.

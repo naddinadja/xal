@@ -499,6 +499,10 @@ xal_dinodes_retrieve(struct xal *xal)
 	struct xal_be_xfs *be = (struct xal_be_xfs *)&xal->be;
 	uint64_t index = 0;
 
+	if (xal->procrole == XAL_PROCROLE_SECONDARY) {
+		return -EINVAL;
+	}
+
 	if (be->base.type != XAL_BACKEND_XFS) {
 		XAL_DEBUG("SKIPPED: Backend is not XFS");
 		return 0;
