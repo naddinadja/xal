@@ -19,6 +19,12 @@ struct xal_backend_base {
 	void (*close)(struct xal *xal);
 };
 
+enum xal_procrole {
+	XAL_PROCROLE_SINGLE = 0,
+	XAL_PROCROLE_PRIMARY = 1,
+	XAL_PROCROLE_SECONDARY = 2,
+};
+
 enum xal_state {
 	XAL_STATE_CLEAN = 0,	///< The representation matches the last indexed filesystem state
 	XAL_STATE_DIRTY = 1,	///< A breaking change occurred that no index has begun to observe
@@ -52,9 +58,9 @@ struct xal {
 	atomic_int _index_state_storage; ///< Backing store for index_state when shm_name is not set
 	atomic_int *seq_lock;    ///< An uneven number indicates the struct is being modified and is not safe to read; may point to external shared memory
 	atomic_int _seq_lock_storage; ///< Backing store for seq_lock when shm_name is not set
-	bool shared_view;        ///< If true, pool memory is owned externally; xal_close() will not unmap it
 	struct xal_shared_state *state; ///< Mapped shared state region; non-NULL when shm_name was set
 	char *state_shm_name;           ///< Name of the _state shm region; set by primary only, for unlink on close
+	enum xal_procrole procrole;
 };
 
 int
