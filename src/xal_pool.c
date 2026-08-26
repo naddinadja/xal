@@ -68,7 +68,7 @@ xal_pool_map(struct xal_pool *pool, size_t reserved, size_t allocated, size_t el
 	if (shm_name) {
 		int fd;
 
-		fd = shm_open(shm_name, O_CREAT | O_RDWR, 0666);
+		fd = shm_open(shm_name, O_CREAT | O_RDWR | O_EXCL, 0644);
 		if (fd < 0) {
 			XAL_DEBUG("FAILED: shm_open(%s); errno(%d)", shm_name, errno);
 			return -errno;

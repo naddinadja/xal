@@ -232,7 +232,7 @@ xal_open(struct xnvme_dev *dev, struct xal **xal, struct xal_opts *opts)
 
 		snprintf(shm_name_state, sizeof(shm_name_state), "%s_state", opts->shm_name);
 
-		fd = shm_open(shm_name_state, O_CREAT | O_RDWR, 0666);
+		fd = shm_open(shm_name_state, O_CREAT | O_RDWR | O_EXCL, 0644);
 		if (fd < 0) {
 			XAL_DEBUG("FAILED: shm_open(%s); errno(%d)", shm_name_state, errno);
 			xal_close(*xal);
