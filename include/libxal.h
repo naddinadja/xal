@@ -277,6 +277,10 @@ xal_pp(struct xal *xal);
  * one: a different opts->be or opts->mountpoint, or a opts->watch_mode or opts->subtree, both of
  * which are decisions belonging to the process that builds the index.
  *
+ * Note that opts->be is an in/out field: left zero it is filled in with the auto-detected backend
+ * and stays set on return. A caller reusing one struct xal_opts across several devices must clear
+ * it between calls, or every device after the first is opened with the first one's backend.
+ *
  * Two error codes mean "not yet, try again" rather than failure, and a caller opening a name
  * concurrently with its primary should expect them: -EAGAIN while the primary is still setting
  * the regions up, and -ESTALE between then and the completion of its xal_index(). -EEXIST is the
@@ -291,6 +295,24 @@ xal_pp(struct xal *xal);
  */
 int
 xal_open(struct xnvme_dev *dev, struct xal **xal, struct xal_opts *opts);
+
+/**
+ * Open and decode the file-system meta-data of the mount holding the given device
+ *
+ * Same contract as xal_open(), including the shm_name primary/secondary auto-detection and the
+ * in/out treatment of opts->be described there, but without a xnvme device to read from. That
+ * leaves XAL_BACKEND_FIEMAP as the only reachable backend -- opts->be is set to it, and any other
+ * value is rejected with -EINVAL -- and leaves sb.lba_blksze unset, so xal_extent_in_lba() on the
+ * resulting handle returns -EINVAL; use xal_extent_in_bytes() instead.
+ *
+ * @param uri The device to index; it must be mounted, unless opts->mountpoint says where
+ * @param xal Pointer
+ * @param opts Pointer to options, see xal_opts
+ *
+ * @return On success a 0 is returned. On error, negative errno is returned to indicate the error.
+ */
+int
+xal_open_from_uri(const char *uri, struct xal **xal, struct xal_opts *opts);
 
 void
 xal_close(struct xal *xal);
