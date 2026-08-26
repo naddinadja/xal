@@ -97,8 +97,15 @@ xal_pool_map(struct xal_pool *pool, size_t reserved, size_t allocated, size_t el
 			pool->memory = NULL;
 			goto failed_created;
 		}
-		memset(pool->memory, 0, nbytes);
 
+		/* The region is not zeroed here: ftruncate() leaves the shared memory sparse and
+		 * tmpfs hands back a zero-filled page on first fault, so a memset would buy nothing
+		 * and cost the whole reservation in resident memory before a single entry exists.
+		 * Pages are allocated as the index writes them instead.
+		 *
+		 * The anonymous branch below reserves PROT_NONE and commits with mprotect() as it
+		 * grows; here the sparseness of the file provides the same laziness, so the pool is
+		 * marked fully allocated from the outset and never has to grow. */
 		pool->allocated = reserved;
 		pool->growby = reserved;
 	} else {
@@ -224,14 +231,18 @@ xal_pool_claim_extents(struct xal_pool *pool, size_t count, uint32_t *idx)
 int
 xal_pool_clear(struct xal_pool *pool)
 {
-	if (mprotect(pool->memory, pool->reserved * pool->element_size, PROT_READ | PROT_WRITE)) {
-		XAL_DEBUG("FAILED: mprotect(...); errno(%d)", errno);
-		return -errno;
-	}
-	memset(pool->memory, 0, pool->reserved * pool->element_size);
+	/* Only the claimed elements have been written, and everything past them is either an
+	 * untouched page or one this call is about to hand out again. Clearing the full
+	 * reservation would rewrite every page of it on each re-index -- for a pool reserved far
+	 * above the entry count, that is the dominant cost of indexing.
+	 *
+	 * The range is writable already: free never exceeds allocated, and allocated is left
+	 * alone so what is committed stays described. mprotect()ing the whole reservation here
+	 * would be dead work, and it would drop the PROT_NONE guard the anonymous mapping keeps
+	 * past allocated to catch an out-of-bounds pool access. */
+	memset(pool->memory, 0, pool->free * pool->element_size);
 
 	pool->free = 0;
-	pool->allocated = 0;
 
 	return 0;
 }
