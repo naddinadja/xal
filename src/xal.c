@@ -242,17 +242,21 @@ xal_open(struct xnvme_dev *dev, struct xal **xal, struct xal_opts *opts)
 		err = ftruncate(fd, sizeof(struct xal_shared_state));
 		if (err) {
 			XAL_DEBUG("FAILED: ftruncate(); errno(%d)", errno);
+			err = -errno;
 			close(fd);
+			shm_unlink(shm_name_state);
 			xal_close(*xal);
-			return -errno;
+			return err;
 		}
 
 		state = mmap(NULL, sizeof(struct xal_shared_state), PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
 		close(fd);
 		if (state == MAP_FAILED) {
 			XAL_DEBUG("FAILED: mmap(); errno(%d)", errno);
+			err = -errno;
+			shm_unlink(shm_name_state);
 			xal_close(*xal);
-			return -errno;
+			return err;
 		}
 
 		(*xal)->state_shm_name = strdup(shm_name_state);
