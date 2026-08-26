@@ -43,6 +43,12 @@ enum xal_backend {
 	XAL_BACKEND_FIEMAP  = 2,
 };
 
+enum xal_procrole {
+	XAL_PROCROLE_SINGLE = 0,    ///< Pools are process-private; no other process is involved
+	XAL_PROCROLE_PRIMARY = 1,   ///< Owns the shared memory regions; indexes into them and removes them on xal_close()
+	XAL_PROCROLE_SECONDARY = 2, ///< Attached read-only to regions owned by a primary; xal_index() returns -EINVAL
+};
+
 enum xal_watchmode {
 	XAL_WATCHMODE_NONE             = 0,  ///< There will be no notifications of changes to the filesystem.
 	XAL_WATCHMODE_DIRTY_DETECTION  = 1,  ///< When changes to the file system occurs, the xal struct will become "dirty" indicating that the representation of the file system is stale.
@@ -60,7 +66,7 @@ struct xal_opts {
 	enum xal_watchmode watch_mode;
 	enum xal_file_lookupmode file_lookupmode;
 	const char *mountpoint;
-	const char *shm_name; ///< If set, pool memory is backed by POSIX shared memory with this base name, see @xal_from_pools() for sharing the pools across processes
+	const char *shm_name; ///< If set, pool memory is backed by POSIX shared memory with this base name. xal_open() creates the regions when the name is unused, and attaches to them read-only when another process has already published an index under it, see xal_from_shm()
 	const char *subtree; ///< FIEMAP backend only: absolute path at or under the mountpoint to scope the index to. Only files under it are indexed (and, in XAL_WATCHMODE_REFLINK_SNAPSHOT, reflinked). NULL/empty indexes the whole mount. Ignored by the XFS backend.
 };
 
@@ -239,6 +245,15 @@ xal_get_sb(struct xal *xal);
 uint32_t
 xal_get_sb_blocksize(struct xal *xal);
 
+/**
+ * Retrieve the role this process holds over the pools backing the given xal
+ *
+ * Primarily useful after xal_open() with opts->shm_name set, where the role decides whether this
+ * process is the one expected to call xal_index() or has attached to an index built elsewhere.
+ */
+enum xal_procrole
+xal_get_procrole(struct xal *xal);
+
 typedef int (*xal_walk_cb)(struct xal *xal, struct xal_inode *inode, void *cb_args, int level);
 
 int
@@ -250,6 +265,23 @@ xal_pp(struct xal *xal);
  * This will retrieve the Superblock (sb) and Allocation Group (AG) headers for all AGs. These are
  * utilized to instantiate the 'struct xal' with a subset of the on-disk-format parsed to native
  * format.
+ *
+ * When opts->shm_name is set, the name decides which of two things happens. If no index is
+ * published under it, this process becomes the primary: it creates the shared memory regions and
+ * is expected to call xal_index(). If another process has already published an index under that
+ * name, this call attaches to it as a secondary instead, exactly as xal_from_shm() would -- the
+ * device is not read, and the returned xal is read-only, so xal_index() on it returns -EINVAL.
+ * Use xal_get_procrole() to tell the two outcomes apart.
+ *
+ * Attaching is refused with -EINVAL when the options describe an index other than the published
+ * one: a different opts->be or opts->mountpoint, or a opts->watch_mode or opts->subtree, both of
+ * which are decisions belonging to the process that builds the index.
+ *
+ * Two error codes mean "not yet, try again" rather than failure, and a caller opening a name
+ * concurrently with its primary should expect them: -EAGAIN while the primary is still setting
+ * the regions up, and -ESTALE between then and the completion of its xal_index(). -EEXIST is the
+ * same situation seen from the other side, where two processes found the name free and this one
+ * lost the race to claim it.
  *
  * @param dev Pointer to xnvme device handled as retrieved with xnvme_dev_open()
  * @param xal Pointer

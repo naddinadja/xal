@@ -16,22 +16,20 @@ struct xal_backend_base {
 	void (*close)(struct xal *xal);
 };
 
-enum xal_procrole {
-	XAL_PROCROLE_SINGLE = 0,
-	XAL_PROCROLE_PRIMARY = 1,
-	XAL_PROCROLE_SECONDARY = 2,
-};
-
 enum xal_state {
 	XAL_STATE_CLEAN = 0,	///< The representation matches the last indexed filesystem state
 	XAL_STATE_DIRTY = 1,	///< A breaking change occurred that no index has begun to observe
 	XAL_STATE_INDEXING = 2, ///< xal_index() is rebuilding the representation
 };
 
+#define XAL_SHARED_STATE_READY 0x58414c53U ///< "XALS"
+
 struct xal_shared_state {
+	atomic_uint ready; ///< XAL_SHARED_STATE_READY once every field below has been written; zero while the region is still under construction
 	enum xal_backend type;
 	struct xal_sb sb;
 	char mountpoint[XAL_PATH_MAXLEN];
+	uint32_t root_idx; ///< Index of the root inode; written by xal_mark_index_done() before the index is declared clean
 	atomic_int index_state; ///< One of enum xal_state
 	atomic_int seq_lock; ///< Even when stable; odd while the pools are being rewritten in place
 };

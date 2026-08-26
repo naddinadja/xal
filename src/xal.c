@@ -86,6 +86,10 @@ xal_close(struct xal *xal)
 
 	should_unlink = xal->procrole != XAL_PROCROLE_SECONDARY;
 
+	if (xal->state && xal->state_shm_name) {
+		atomic_store_explicit(&xal->state->ready, 0, memory_order_release);
+	}
+
 	xal_pool_unmap(&xal->inodes, should_unlink);
 	xal_pool_unmap(&xal->extents, should_unlink);
 
@@ -131,6 +135,96 @@ retrieve_mountpoint(const char *dev_uri, char *mntpnt)
 	return 0;
 }
 
+/**
+ * Check whether another process holds an index under the given base name
+ *
+ * The _state region is unlinked after the pools it describes, so its absence means every region
+ * under this name is gone and the name is free to claim. Only -ENOENT says that; every other
+ * error belongs to the caller, since proceeding as primary on e.g. -EACCES would fail later with
+ * a misleading -EEXIST.
+ *
+ * @return 0 when the region exists, -ENOENT when it does not, negative errno on error.
+ */
+static int
+state_shm_probe(const char *shm_name)
+{
+	char shm_name_state[XAL_PATH_MAXLEN + 9];
+	int fd;
+
+	snprintf(shm_name_state, sizeof(shm_name_state), "%s_state", shm_name);
+
+	fd = shm_open(shm_name_state, O_RDONLY, 0);
+	if (fd < 0) {
+		return -errno;
+	}
+	close(fd);
+
+	return 0;
+}
+
+/**
+ * Attach to the index published under opts->shm_name as a secondary
+ *
+ * How the index was built is the primary's decision, so options describing that -- the backend,
+ * the mountpoint, the subtree scope and the watch mode -- cannot be honoured here. Rather than
+ * hand back a handle that quietly ignores them, they are rejected: either they agree with what
+ * the primary did, in which case they are redundant, or they do not, in which case the caller is
+ * not getting what it asked for. Only opts->file_lookupmode is a per-process choice.
+ */
+static int
+attach_from_shm(struct xnvme_dev *dev, struct xal **xal, struct xal_opts *opts)
+{
+	struct xal_backend_base *be;
+	int err;
+
+	if (opts->watch_mode || opts->subtree) {
+		XAL_DEBUG("FAILED: watch_mode/subtree are for the process building the index");
+		return -EINVAL;
+	}
+
+	err = xal_from_shm(opts->shm_name, xal);
+	if (err) {
+		XAL_DEBUG("FAILED: xal_from_shm(%s); err(%d)", opts->shm_name, err);
+		return err;
+	}
+
+	be = (struct xal_backend_base *)&(*xal)->be;
+
+	if (opts->be && (be->type != opts->be)) {
+		XAL_DEBUG("FAILED: shm_name(%s) was indexed with backend(%d), not backend(%d)",
+			  opts->shm_name, be->type, opts->be);
+		err = -EINVAL;
+		goto failed;
+	}
+
+	if (opts->mountpoint && strlen(opts->mountpoint) &&
+	    strcmp(opts->mountpoint, (*xal)->state->mountpoint)) {
+		XAL_DEBUG("FAILED: shm_name(%s) holds an index of mountpoint(%s)", opts->shm_name,
+			  (*xal)->state->mountpoint);
+		err = -EINVAL;
+		goto failed;
+	}
+
+	if ((opts->file_lookupmode == XAL_FILE_LOOKUPMODE_HASHMAP) &&
+	    (be->type == XAL_BACKEND_FIEMAP)) {
+		err = xal_build_lookup_hashmap(*xal);
+		if (err) {
+			XAL_DEBUG("FAILED: xal_build_lookup_hashmap(); err(%d)", err);
+			goto failed;
+		}
+	}
+
+	(*xal)->dev = dev;
+
+	return 0;
+
+failed:
+	xal_close(*xal);
+	*xal = NULL;
+
+	return err;
+}
+
 int
 xal_open(struct xnvme_dev *dev, struct xal **xal, struct xal_opts *opts)
 {
@@ -147,6 +241,29 @@ xal_open(struct xnvme_dev *dev, struct xal **xal, struct xal_opts *opts)
 
 	if (!opts) {
 		opts = &opts_default;
+	}
+
+	// Auto-detect whether it's primary or secondary procrole
+	if (opts->shm_name) {
+		err = state_shm_probe(opts->shm_name);
+		if (err && (err != -ENOENT)) {
+			XAL_DEBUG("FAILED: state_shm_probe(%s); err(%d)", opts->shm_name, err);
+			return err;
+		}
+
+		if (!err) {
+			err = attach_from_shm(dev, xal, opts);
+
+			/* Anything but the region having gone away belongs to the caller; when the
+			 * owner unlinked it between the probe and the attach, the name is free
+			 * again and this process is the one to claim it. */
+			if (err != -ENOENT) {
+				return err;
+			}
+
+			XAL_DEBUG("INFO: shm_name(%s) was released while attaching, opening as primary",
+				  opts->shm_name);
+		}
 	}
 
 	ident = xnvme_dev_get_ident(dev);
@@ -263,6 +380,7 @@ xal_open(struct xnvme_dev *dev, struct xal **xal, struct xal_opts *opts)
 		if (!(*xal)->state_shm_name) {
 			XAL_DEBUG("FAILED: strdup(); errno(%d)", errno);
 			munmap(state, sizeof(struct xal_shared_state));
+			shm_unlink(shm_name_state);
 			xal_close(*xal);
 			return -ENOMEM;
 		}
@@ -271,10 +389,19 @@ xal_open(struct xnvme_dev *dev, struct xal **xal, struct xal_opts *opts)
 		(*xal)->index_state = &state->index_state;
 		(*xal)->seq_lock = &state->seq_lock;
 
+		/* ftruncate() zero-fills, and XAL_STATE_CLEAN is zero, so the region would read as
+		 * an up-to-date index before one has been built. Mark it dirty here; xal_index()
+		 * clears it once there is something to attach to. */
+		atomic_store(&state->index_state, XAL_STATE_DIRTY);
+
 		state->type = opts->be;
 		state->sb = (*xal)->sb;
 		strncpy(state->mountpoint, mountpoint, XAL_PATH_MAXLEN - 1);
 		state->mountpoint[XAL_PATH_MAXLEN - 1] = '\0';
+
+		/* Published last: the region is reachable under its name from the moment shm_open()
+		 * returns, so this marker is what tells a reader the fields above are written. */
+		atomic_store_explicit(&state->ready, XAL_SHARED_STATE_READY, memory_order_release);
 	}
 
 	return 0;
@@ -367,6 +494,12 @@ xal_mark_index_done(struct xal *xal, int err)
 		return;
 	}
 
+	/* Where the tree starts is only known once it is built; publish it before the index is
+	 * declared clean, which is the point at which a secondary may read it. */
+	if (xal->state) {
+		xal->state->root_idx = xal->root_idx;
+	}
+
 	// A mark landing mid-rebuild wins the exchange and survives the index.
 	int expected = XAL_STATE_INDEXING;
 
@@ -391,13 +524,20 @@ xal_get_sb_blocksize(struct xal *xal)
 	return xal->sb.blocksize;
 }
 
+enum xal_procrole
+xal_get_procrole(struct xal *xal)
+{
+	return xal->procrole;
+}
+
 int
 xal_from_shm(const char *shm_name, struct xal **out)
 {
 	struct xal *xal;
 	struct xal_shared_state *state;
 	struct stat st;
-	char shm_name_inodes[128], shm_name_extents[128], shm_name_state[128];
+	char shm_name_inodes[XAL_PATH_MAXLEN + 9], shm_name_extents[XAL_PATH_MAXLEN + 9],
+	    shm_name_state[XAL_PATH_MAXLEN + 9];
 	size_t inodes_size, extents_size;
 	void *inodes_mem, *extents_mem;
 	int shm_fd = -1, err;
@@ -421,6 +561,20 @@ xal_from_shm(const char *shm_name, struct xal **out)
 		goto failed;
 	}
 
+	/* The creator sizes the region after creating it, so a region shorter than the struct is
+	 * one that is still being set up; mapping it would fault on access. */
+	err = fstat(shm_fd, &st);
+	if (err) {
+		err = -errno;
+		fprintf(stderr, "Failed: fstat(state); err(%d)\n", err);
+		goto failed;
+	}
+
+	if ((size_t)st.st_size < sizeof(struct xal_shared_state)) {
+		err = -EAGAIN;
+		goto failed;
+	}
+
 	state = mmap(NULL, sizeof(struct xal_shared_state), PROT_READ, MAP_SHARED, shm_fd, 0);
 	close(shm_fd);
 	shm_fd = -1;
@@ -429,6 +583,11 @@ xal_from_shm(const char *shm_name, struct xal **out)
 		err = -errno;
 		fprintf(stderr, "Failed: mmap(state); err(%d)\n", err);
 		goto failed;
+	}
+
+	if (atomic_load_explicit(&state->ready, memory_order_acquire) != XAL_SHARED_STATE_READY) {
+		err = -EAGAIN;
+		goto unmap_state;
 	}
 
 	xal->state = state;
@@ -440,6 +599,9 @@ xal_from_shm(const char *shm_name, struct xal **out)
 		err = -ESTALE;
 		goto unmap_state;
 	}
+
+	/* Only meaningful once the index is clean, which the check above established */
+	xal->root_idx = state->root_idx;
 
 	/* INODES */
 	shm_fd = shm_open(shm_name_inodes, O_RDONLY, 0);
