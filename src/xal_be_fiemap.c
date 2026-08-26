@@ -299,7 +299,9 @@ xal_be_fiemap_close(struct xal *xal)
 
 	be = (struct xal_be_fiemap *)&xal->be;
 
-	if (be->inotify) {
+	if (xal->procrole == XAL_PROCROLE_SECONDARY) {
+		XAL_DEBUG("INFO: secondary; watcher, snapshot and freeze belong to the primary");
+	} else if (be->inotify) {
 		xal_be_fiemap_inotify_close(be->inotify);
 	} else if (be->reflink) {
 		if (be->reflink->dir_created) {
@@ -610,7 +612,7 @@ xal_be_fiemap_open(struct xal **xal, char *mountpoint, struct xal_opts *opts)
 	cand->sb.blocksize = sb.st_blksize;
 	cand->sb.rootino = sb.st_ino;
 
-	if (opts->shm_name) {		
+	if (opts->shm_name) {
 		if (strlen(opts->shm_name) > XAL_PATH_MAXLEN) {
 			XAL_DEBUG("FAILED: shm_name too long");
 			err = -EINVAL;
