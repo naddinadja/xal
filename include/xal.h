@@ -1,3 +1,6 @@
+#ifndef XAL_H
+#define XAL_H
+
 #include <stdatomic.h>
 #include <unistd.h>
 #include <xal_pool.h>
@@ -59,3 +62,5 @@ search_by_traversal(struct xal *xal, struct xal_inode *root, char *path, char *b
 
 void
 xal_mark_index_done(struct xal *xal, int err);
+
+#endif /* XAL_H */

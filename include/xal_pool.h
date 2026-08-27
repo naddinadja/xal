@@ -1,3 +1,6 @@
+#ifndef XAL_POOL_H
+#define XAL_POOL_H
+
 #include <stdint.h>
 
 /**
@@ -50,3 +53,5 @@ xal_pool_claim_inodes(struct xal_pool *pool, size_t count, uint32_t *idx);
 
 int
 xal_pool_clear(struct xal_pool *pool);
+
+#endif /* XAL_POOL_H */

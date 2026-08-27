@@ -1,3 +1,6 @@
+#ifndef XAL_ODF_H
+#define XAL_ODF_H
+
 /**
  * Internal definitions for the Xfs Access Library (XAL)
  *
@@ -408,3 +411,5 @@ struct xal_btree_lblock {
 	uint32_t btree_crc;
 	uint32_t btree_pad;
 };
+
+#endif /* XAL_ODF_H */
