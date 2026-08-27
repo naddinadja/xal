@@ -79,6 +79,10 @@ xal_close(struct xal *xal)
 		return;
 	}
 
+	if (xal->procrole == XAL_PROCROLE_PRIMARY && xal->state) {
+		xal_mark_dirty(xal);
+	}
+
 	be = (struct xal_backend_base *)&xal->be;
 	if (be->close) {
 		be->close(xal);
