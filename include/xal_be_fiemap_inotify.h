@@ -1,3 +1,6 @@
+#ifndef XAL_BE_FIEMAP_INOTIFY_H
+#define XAL_BE_FIEMAP_INOTIFY_H
+
 #include <stdatomic.h>
 
 #define XAL_BE_FIEMAP_INOTIFY_RUNNING 1
@@ -45,3 +48,5 @@ xal_be_fiemap_inotify_clear_inode_map(struct xal_inotify *inotify);
 
 int
 xal_be_fiemap_inotify_add_watcher(struct xal_inotify *inotify, char *path, struct xal_inode *inode);
+
+#endif /* XAL_BE_FIEMAP_INOTIFY_H */

@@ -1,3 +1,6 @@
+#ifndef LIBXAL_UTIL_H
+#define LIBXAL_UTIL_H
+
 #ifdef XAL_DEBUG_ENABLED
 
 #define XAL_DEBUG_FCALL(fn, ...) fn(__VA_ARGS__)
@@ -41,3 +44,5 @@
 #else
 #define XAL_UNUSED(x) UNUSED_##x
 #endif
+
+#endif /* LIBXAL_UTIL_H */

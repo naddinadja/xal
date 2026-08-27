@@ -1,3 +1,6 @@
+#ifndef XAL_BE_FIEMAP_H
+#define XAL_BE_FIEMAP_H
+
 struct xal_reflink;
 
 struct xal_be_fiemap {
@@ -20,3 +23,5 @@ xal_be_fiemap_open(struct xal **xal, char *mountpoint, struct xal_opts *opts);
 
 int
 xal_be_fiemap_get_inode(struct xal *xal, char *path, struct xal_inode **inode);
+
+#endif /* XAL_BE_FIEMAP_H */

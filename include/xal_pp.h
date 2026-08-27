@@ -1,3 +1,6 @@
+#ifndef XAL_PP_H
+#define XAL_PP_H
+
 const char *
 xal_odf_dinode_format_str(int val);
 
@@ -27,3 +30,5 @@ xal_ag_pp(struct xal_ag *ag);
 
 int
 xal_inotify_pp(struct xal_inotify *inotify);
+
+#endif /* XAL_PP_H */

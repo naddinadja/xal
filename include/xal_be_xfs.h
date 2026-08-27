@@ -1,3 +1,6 @@
+#ifndef XAL_BE_XFS_H
+#define XAL_BE_XFS_H
+
 /**
  * XAL Allocation Group
  *
@@ -31,3 +34,5 @@ xal_be_xfs_close(struct xal *xal);
 
 int
 xal_be_xfs_open(struct xnvme_dev *dev, struct xal **xal, struct xal_opts *opts);
+
+#endif /* XAL_BE_XFS_H */
