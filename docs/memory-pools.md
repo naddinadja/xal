@@ -90,6 +90,18 @@ does: once the primary closes, the names are gone and no new secondary can
 attach, even though already-attached secondaries keep their mapping valid
 until they close.
 
+A primary marks the index dirty before it tears the backend down, so that a
+secondary attaching during the teardown gets ``-ESTALE`` rather than a handle
+describing a snapshot that is being deleted. The mapping an already-attached
+secondary holds stays readable regardless — ``shm_unlink()`` removes the name,
+not the object — but ``xal_get_inode()``, ``xal_get_extents()``,
+``xal_get_dentries()``, ``xal_build_lookup_hashmap()`` and ``xal_walk()`` all
+check the flag and start refusing. ``xal_get_root()`` and ``xal_inode_at()``
+return pointers and cannot report it, and no check is repeated once a walk is
+under way: the primary may close at any point between a check and the use of
+what it validated. Ordering the mark first narrows that window; it does not
+remove it.
+
 **Indexing.** ``xal_index()`` and ``xal_dinodes_retrieve()`` both return
 ``-EINVAL`` on a secondary handle. The pools are mapped read-only there, and
 the index is the primary's to build and rebuild. ``xal_dinodes_retrieve()`` is

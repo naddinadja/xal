@@ -348,6 +348,10 @@ xal_stop_watching_filesystem(struct xal *xal);
  *   * Directory
  *   * Regular file
  *
+ * The index is checked before the traversal starts: -ESTALE is returned when it has been marked
+ * dirty, which for a handle from xal_from_shm() includes the primary having closed. The check is
+ * not repeated during the walk, and xal_get_root() and xal_inode_at() do not perform it at all.
+ *
  * Returns 0 on success. On error, negative errno is returned to indicate the error.
  */
 int
