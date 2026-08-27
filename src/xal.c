@@ -335,6 +335,11 @@ _walk(struct xal *xal, struct xal_inode *inode, xal_walk_cb cb_func, void *cb_da
 int
 xal_walk(struct xal *xal, struct xal_inode *inode, xal_walk_cb cb_func, void *cb_data)
 {
+	if (xal_is_dirty(xal)) {
+		XAL_DEBUG("FAILED: File system has changed");
+		return -ESTALE;
+	}
+
 	return _walk(xal, inode, cb_func, cb_data, 0);
 }
 
