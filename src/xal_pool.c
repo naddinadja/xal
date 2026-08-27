@@ -12,25 +12,35 @@
 int
 xal_pool_unmap(struct xal_pool *pool, bool unlink)
 {
+	int ret = 0;
 	int err;
-	
-	err = munmap(pool->memory, pool->reserved * pool->element_size);
-	if (err < 0) {
-		err = -errno;
-		XAL_DEBUG("FAILED: mprotmunmapect(...); errno(%d)", errno);
-		return err;
-	}
 
-	if (pool->shm_name && unlink) {
-		err = shm_unlink(pool->shm_name);
+	if (pool->memory) {
+		err = munmap(pool->memory, pool->reserved * pool->element_size);
 		if (err < 0) {
-			err = -errno;
-			XAL_DEBUG("FAILED: shm_unlink(...); errno(%d)", errno);
-			return err;
+			ret = -errno;
+			XAL_DEBUG("FAILED: munmap(...); errno(%d)", errno);
+		} else {
+			pool->memory = NULL;
 		}
 	}
 
-	return 0;
+	if (pool->shm_name) {
+		if (unlink) {
+			err = shm_unlink(pool->shm_name);
+			if (err < 0) {
+				XAL_DEBUG("FAILED: shm_unlink(...); errno(%d)", errno);
+				if (!ret) {
+					ret = -errno;
+				}
+			}
+		}
+
+		free(pool->shm_name);
+		pool->shm_name = NULL;
+	}
+
+	return ret;
 }
 
 int
@@ -71,7 +81,8 @@ xal_pool_map(struct xal_pool *pool, size_t reserved, size_t allocated, size_t el
 		pool->shm_name = strdup(shm_name);
 		if (!pool->shm_name) {
 			XAL_DEBUG("FAILED: strdup(); errno(%d)", errno);
-			return -errno;
+			err = -errno;
+			goto failed;
 		}
 
 		fd = shm_open(shm_name, O_CREAT | O_RDWR | O_EXCL, 0644);
@@ -104,7 +115,8 @@ xal_pool_map(struct xal_pool *pool, size_t reserved, size_t allocated, size_t el
 	} else {
 		if (allocated > reserved) {
 			XAL_DEBUG("FAILED: xal_pool_map(...); errno(%d)", EINVAL);
-			return -EINVAL;
+			err = -EINVAL;
+			goto failed;
 		}
 
 		pool->allocated = 0;
@@ -114,14 +126,16 @@ xal_pool_map(struct xal_pool *pool, size_t reserved, size_t allocated, size_t el
 		    mmap(NULL, nbytes, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
 		if (MAP_FAILED == pool->memory) {
 			XAL_DEBUG("FAILED: mmap(...); errno(%d)", errno);
-			return -errno;
+			err = -errno;
+			pool->memory = NULL;
+			goto failed;
 		}
 
 		err = xal_pool_grow(pool, allocated);
 		if (err) {
 			XAL_DEBUG("FAILED: xal_pool_grow(...); err(%d)", err);
 			xal_pool_unmap(pool, false);
-			return err;
+			goto failed;
 		}
 	}
 
@@ -132,6 +146,12 @@ failed_created:
 failed_name:
 	free(pool->shm_name);
 	pool->shm_name = NULL;
+failed:
+	pool->reserved = 0;
+	pool->allocated = 0;
+	pool->growby = 0;
+	pool->free = 0;
+	pool->element_size = 0;
 
 	return err;
 }
