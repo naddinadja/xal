@@ -43,10 +43,16 @@ xal_be_fiemap_inotify_close(struct xal_inotify *inotify)
 
 	inode_map = inotify->inode_map;
 
-	if (inotify->flag & XAL_BE_FIEMAP_INOTIFY_RUNNING) {
+	/* Reap whether it was told to stop or exited on its own. RUNNING says a thread was created
+	 * and has not exited, JOINABLE says watch_thread_id names one nobody has joined yet, and
+	 * only the second makes the join safe. A thread that has already exited ignores the stop,
+	 * so requesting it here costs nothing and is what keeps a live one from being joined
+	 * forever. */
+	if (atomic_load(&inotify->flag) & XAL_BE_FIEMAP_INOTIFY_JOINABLE) {
 		atomic_store(&inotify->stop, true);
 		pthread_join(inotify->watch_thread_id, NULL);
-		inotify->flag &= ~XAL_BE_FIEMAP_INOTIFY_RUNNING;
+		atomic_fetch_and(&inotify->flag,
+				 ~(XAL_BE_FIEMAP_INOTIFY_RUNNING | XAL_BE_FIEMAP_INOTIFY_JOINABLE));
 	}
 
 	if (inode_map) {
@@ -67,6 +73,7 @@ xal_be_fiemap_inotify_init(struct xal_inotify *inotify, enum xal_watchmode watch
 	}
 
 	inotify->watch_mode = watch_mode;
+	atomic_init(&inotify->flag, 0);
 	atomic_init(&inotify->stop, false);
 
 	if (!inotify->watch_mode) {
@@ -351,8 +358,6 @@ background_thread_start(void *arg)
 		goto exit_thread;
 	}
 
-	be->inotify->flag |= XAL_BE_FIEMAP_INOTIFY_RUNNING;
-
 	pfd.fd = be->inotify->fd;
 	pfd.events = POLLIN;
 
@@ -425,7 +430,7 @@ exit_thread:
 	XAL_DEBUG("INFO: unlocked xal lock");
 
 	if (be->inotify) {
-		be->inotify->flag &= ~XAL_BE_FIEMAP_INOTIFY_RUNNING;
+		atomic_fetch_and(&be->inotify->flag, ~XAL_BE_FIEMAP_INOTIFY_RUNNING);
 	}
 	pthread_exit((void *)(intptr_t)err);
 }
@@ -454,9 +459,14 @@ xal_watch_filesystem(struct xal *xal, xal_dirty_cb cb, void *cb_args)
 		return -EINVAL;
 	}
 
-	if (be->inotify->flag & XAL_BE_FIEMAP_INOTIFY_RUNNING) {
+	if (atomic_load(&be->inotify->flag) & XAL_BE_FIEMAP_INOTIFY_RUNNING) {
 		XAL_DEBUG("SKIPPED: thread already running");
 		return 0;
+	}
+
+	if (atomic_load(&be->inotify->flag) & XAL_BE_FIEMAP_INOTIFY_JOINABLE) {
+		pthread_join(be->inotify->watch_thread_id, NULL);
+		atomic_fetch_and(&be->inotify->flag, ~XAL_BE_FIEMAP_INOTIFY_JOINABLE);
 	}
 
 	if (xal->root_idx == XAL_POOL_IDX_NONE) {
@@ -473,6 +483,12 @@ xal_watch_filesystem(struct xal *xal, xal_dirty_cb cb, void *cb_args)
 		XAL_DEBUG("FAILED: pthread_create(); err(%d)", err);
 		return -err;
 	}
+
+	/* Raised here rather than by the thread itself: until this store, watch_thread_id names no
+	 * thread the reapers may touch, and a RUNNING raised by the thread would leave a window in
+	 * which a started thread looks stopped. */
+	atomic_fetch_or(&be->inotify->flag,
+			XAL_BE_FIEMAP_INOTIFY_RUNNING | XAL_BE_FIEMAP_INOTIFY_JOINABLE);
 
 	return 0;
 }
@@ -501,7 +517,17 @@ xal_stop_watching_filesystem(struct xal *xal)
 		return -EINVAL;
 	}
 
-	if (!(be->inotify->flag & XAL_BE_FIEMAP_INOTIFY_RUNNING)) {
+	if (!(atomic_load(&be->inotify->flag) & XAL_BE_FIEMAP_INOTIFY_RUNNING)) {
+		/* Not running, but a thread that exited on its own is still holding its stack. */
+		if (atomic_load(&be->inotify->flag) & XAL_BE_FIEMAP_INOTIFY_JOINABLE) {
+			err = pthread_join(be->inotify->watch_thread_id, NULL);
+			if (err) {
+				XAL_DEBUG("FAILED: pthread_join(); err(%d)", err);
+				return -err;
+			}
+			atomic_fetch_and(&be->inotify->flag, ~XAL_BE_FIEMAP_INOTIFY_JOINABLE);
+		}
+
 		XAL_DEBUG("FAILED: thread is not running");
 		return -EINVAL;
 	}
@@ -513,7 +539,8 @@ xal_stop_watching_filesystem(struct xal *xal)
 		return -err;
 	}
 
-	be->inotify->flag &= ~XAL_BE_FIEMAP_INOTIFY_RUNNING;
+	atomic_fetch_and(&be->inotify->flag,
+			 ~(XAL_BE_FIEMAP_INOTIFY_RUNNING | XAL_BE_FIEMAP_INOTIFY_JOINABLE));
 
 	return 0;
 }
