@@ -4,13 +4,14 @@
 #include <stdatomic.h>
 
 #define XAL_BE_FIEMAP_INOTIFY_RUNNING 1
+#define XAL_BE_FIEMAP_INOTIFY_JOINABLE 2
 
 struct xal_inotify {
 	enum xal_watchmode watch_mode;
 	int fd;           ///< File descriptor for inotify events, if opened with some xal_watchmode, else 0
 	void *inode_map;  ///< Map of inodes from inotify watch descriptors
 	pthread_t watch_thread_id;
-	int flag;
+	atomic_int flag;
 	atomic_bool stop;
 	xal_dirty_cb cb;
 	void *cb_args;
