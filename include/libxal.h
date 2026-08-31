@@ -36,6 +36,7 @@
 
 #define XAL_INODE_NAME_MAXLEN 255
 #define XAL_PATH_MAXLEN 255
+#define XAL_INODE_PATH_MAXLEN 4096
 #define XAL_POOL_IDX_NONE UINT32_MAX
 
 enum xal_backend {
@@ -411,8 +412,45 @@ xal_fsbno_offset(struct xal *xal, uint64_t fsbno);
 int
 xal_from_shm(const char *shm_name, struct xal **out);
 
+/**
+ * Print the path of the given inode to stdout
+ *
+ * The path is printed relative to the root of the indexed tree, that is, without the basepath
+ * that xal_inode_path() prefixes for the FIEMAP backend, and nothing is printed for the root
+ * itself. That is what lets a caller prefix a root of its own; 'xal --find' prints the device
+ * URI. Use xal_inode_path() for a path accepted by xal_get_inode().
+ *
+ * @param xal The xal struct obtained when opened with xal_open()
+ * @param inode The inode to print the path of
+ *
+ * @return The number of characters printed. Nothing is printed when the index is stale. A
+ * malformed parent chain stops the walk at the bad link, so what is printed is missing the
+ * components above it.
+ */
 int
 xal_inode_path_pp(struct xal *xal, struct xal_inode *inode);
+
+/**
+ * Assemble the absolute path of the given inode into the given buffer.
+ *
+ * 'struct xal_inode' stores the leaf name of the entry; the path is assembled by walking the
+ * parent chain to the root of the indexed tree. The assembled path is the one accepted by
+ * xal_get_inode(): for the FIEMAP backend it is prefixed with the indexed root on the local
+ * filesystem (the mountpoint, or opts.subtree when given), for the XFS backend it is given as
+ * if the filesystem was mounted at root ("/").
+ *
+ * @param xal The xal struct obtained when opened with xal_open()
+ * @param inode The inode to assemble the path of
+ * @param buf Buffer receiving the nul-terminated path; XAL_INODE_PATH_MAXLEN + 1 bytes holds any
+ * path the FIEMAP backend can index, that being a path on a mounted filesystem. The XFS backend
+ * indexes trees of any depth, so a path there can be longer, and -ENAMETOOLONG is returned
+ * @param buf_nbytes Size of 'buf' in bytes, including room for nul-termination
+ *
+ * @return On success, the length of the path written, not counting nul-termination, is returned.
+ * On error, negative errno is returned to indicate the error.
+ */
+int
+xal_inode_path(struct xal *xal, struct xal_inode *inode, char *buf, size_t buf_nbytes);
 
 /**
  * Determine if the given inode is a directory
