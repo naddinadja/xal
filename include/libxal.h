@@ -389,7 +389,8 @@ xal_fsbno_offset(struct xal *xal, uint64_t fsbno);
  *
  * Intended for multi-process support, where a primary process has built the xal tree with
  * opts->shm_name set and called xal_index(). All metadata (superblock, backend type, mountpoint,
- * root index) is read from the shared state region; no out-of-band communication is required.
+ * the subtree a scoped index is rooted at, root index) is read from the shared state region; no
+ * out-of-band communication is required.
  * The resulting xal can be closed with xal_close(), which will free the struct xal allocation and
  * munmap the shared memory regions.
  *

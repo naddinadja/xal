@@ -40,9 +40,9 @@ creating process on ``xal_close()``; see "Process roles" below.
 A secondary process that needs read-only access to an already-indexed pool can
 attach to the shared memory objects directly, without opening the device or
 re-running ``xal_index()``. All metadata (superblock, backend type, mountpoint,
-root inode index) is read from a dedicated ``_state`` shared memory region
-created by the primary; no out-of-band communication is needed beyond the base
-shared memory name.
+the subtree a scoped index is rooted at, root inode index) is read from a
+dedicated ``_state`` shared memory region created by the primary; no
+out-of-band communication is needed beyond the base shared memory name.
 
 The typical pattern is:
 
