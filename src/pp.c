@@ -361,6 +361,7 @@ xal_be_fiemap_pp(struct xal_be_fiemap *be)
 
 	wrtn += printf("xal_be_fiemap:\n");
 	wrtn += printf("  mountpoint: %s\n", be->mountpoint);
+	wrtn += printf("  subtree: %s\n", be->subtree ? be->subtree : "~");
 
 	return wrtn;
 }

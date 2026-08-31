@@ -35,6 +35,7 @@ struct xal_shared_state {
 	enum xal_backend type;
 	struct xal_sb sb;
 	char mountpoint[XAL_PATH_MAXLEN];
+	char subtree[XAL_PATH_MAXLEN]; ///< Empty when the index covers the whole mount
 	atomic_int index_state; ///< One of enum xal_state
 	atomic_int seq_lock; ///< Even when stable; odd while the pools are being rewritten in place
 };

@@ -138,8 +138,9 @@ retrieve_mountpoint(const char *dev_uri, char *mntpnt)
 /**
  * Create the shared state region for the given shm_name and publish it
  *
- * A secondary attaches using this region alone, so it carries the backend, superblock and
- * mountpoint. On failure nothing is left behind under the name.
+ * A secondary attaches using this region alone, so it carries the backend, superblock,
+ * mountpoint and the subtree a scoped index is rooted at. On failure nothing is left behind
+ * under the name.
  */
 static int
 publish_shared_state(struct xal *xal, const char *shm_name, const char *mountpoint,
@@ -197,6 +198,15 @@ publish_shared_state(struct xal *xal, const char *shm_name, const char *mountpoi
 	state->sb = xal->sb;
 	strncpy(state->mountpoint, mountpoint, XAL_PATH_MAXLEN - 1);
 	state->mountpoint[XAL_PATH_MAXLEN - 1] = '\0';
+
+	if (be == XAL_BACKEND_FIEMAP) {
+		struct xal_be_fiemap *fiemap_be = (struct xal_be_fiemap *)&xal->be;
+
+		if (fiemap_be->subtree) {
+			strncpy(state->subtree, fiemap_be->subtree, XAL_PATH_MAXLEN - 1);
+			state->subtree[XAL_PATH_MAXLEN - 1] = '\0';
+		}
+	}
 
 	return 0;
 }
@@ -603,6 +613,15 @@ xal_from_shm(const char *shm_name, struct xal **out)
 		if (!be->mountpoint) {
 			err = -ENOMEM;
 			goto unmap_extents;
+		}
+
+		if (strlen(state->subtree)) {
+			be->subtree = strdup(state->subtree);
+			if (!be->subtree) {
+				free(be->mountpoint);
+				err = -ENOMEM;
+				goto unmap_extents;
+			}
 		}
 	} else {
 		struct xal_be_xfs *be = (struct xal_be_xfs *)&xal->be;
