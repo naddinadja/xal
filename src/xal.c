@@ -692,12 +692,23 @@ failed:
 int
 xal_inode_path_pp(struct xal *xal, struct xal_inode *inode)
 {
+	uint32_t inode_idx;
 	int wrtn = 0;
 
-	if (!inode) {
+	if (!xal || !inode) {
 		return wrtn;
 	}
+
+	if (xal_is_dirty(xal)) {
+		return wrtn;
+	}
+
 	if (inode->parent_idx == XAL_POOL_IDX_NONE) {
+		return wrtn;
+	}
+
+	inode_idx = xal_inode_idx(xal, inode);
+	if (inode_idx <= inode->parent_idx) {
 		return wrtn;
 	}
 
