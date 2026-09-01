@@ -177,8 +177,8 @@ main(int argc, char *argv[])
 	struct xnvme_opts xnvme_opts = {0};
 	struct xal_opts opts = {0};
 	struct xal_nodeinspector_args cb_args;
-	struct xnvme_dev *dev;
-	struct xal *xal;
+	struct xnvme_dev *dev = NULL;
+	struct xal *xal = NULL;
 	int err;
 
 	err = parse_args(argc, argv, &args);
@@ -190,8 +190,9 @@ main(int argc, char *argv[])
 
 	dev = xnvme_dev_open(args.dev_uri, &xnvme_opts);
 	if (!dev) {
-		printf("xnvme_dev_open(...); err(%d)\n", errno);
-		return -errno;
+		err = -errno;
+		fprintf(stderr, "xnvme_dev_open(...); err(%d)\n", errno);
+		return err;
 	}
 
 	if (args.backend) {
@@ -200,8 +201,10 @@ main(int argc, char *argv[])
 		} else if (strcmp(args.backend, "fiemap") == 0) {
 			opts.be = XAL_BACKEND_FIEMAP;
 		} else {
-			printf("Invalid backend: %s; Valid choices: xfs, fiemap\n", args.backend);
-			return -EINVAL;
+			fprintf(stderr, "Invalid backend: %s; Valid choices: xfs, fiemap\n",
+				args.backend);
+			err = -EINVAL;
+			goto exit;
 		}
 	} else if (args.filename) {
 		opts.be = XAL_BACKEND_FIEMAP;
@@ -215,9 +218,11 @@ main(int argc, char *argv[])
 		} else if (strcmp(args.watch_mode, "extent") == 0) {
 			opts.watch_mode = XAL_WATCHMODE_EXTENT_UPDATE;
 		} else {
-			printf("Invalid watch-mode: %s; Valid choices: none, dirty, extent\n",
-			       args.watch_mode);
-			return -EINVAL;
+			fprintf(stderr,
+				"Invalid watch-mode: %s; Valid choices: none, dirty, extent\n",
+				args.watch_mode);
+			err = -EINVAL;
+			goto exit;
 		}
 	}
 
@@ -227,8 +232,8 @@ main(int argc, char *argv[])
 
 	err = xal_open(dev, &xal, &opts);
 	if (err < 0) {
-		printf("xal_open(...); err(%d)\n", err);
-		return -err;
+		fprintf(stderr, "xal_open(...); err(%d)\n", err);
+		goto exit;
 	}
 
 	if (args.meta) {
@@ -237,13 +242,13 @@ main(int argc, char *argv[])
 
 	err = xal_dinodes_retrieve(xal);
 	if (err) {
-		printf("xal_dinodes_retrieve(...); err(%d)\n", err);
-		return err;
+		fprintf(stderr, "xal_dinodes_retrieve(...); err(%d)\n", err);
+		goto exit;
 	}
 
 	err = xal_index(xal);
 	if (err) {
-		printf("xal_index(...); err(%d)\n", err);
+		fprintf(stderr, "xal_index(...); err(%d)\n", err);
 		goto exit;
 	}
 
@@ -255,7 +260,7 @@ main(int argc, char *argv[])
 
 		err = xal_walk(xal, root, node_inspector_bmap, &cb_args);
 		if (err) {
-			printf("xal_walk(.. node_visistor_bmap ..); err(%d)\n", err);
+			fprintf(stderr, "xal_walk(.. node_visistor_bmap ..); err(%d)\n", err);
 			goto exit;
 		}
 	}
@@ -268,7 +273,7 @@ main(int argc, char *argv[])
 
 		err = xal_walk(xal, root, node_inspector_find, &cb_args);
 		if (err) {
-			printf("xal_walk(.. node_visistor_find ..); err(%d)\n", err);
+			fprintf(stderr, "xal_walk(.. node_visistor_find ..); err(%d)\n", err);
 			goto exit;
 		}
 	}
@@ -278,7 +283,7 @@ main(int argc, char *argv[])
 
 		err = xal_get_inode(xal, args.filename, &inode);
 		if (err) {
-			printf("FAILED: xal_get_inode(); err(%d)\n", err);
+			fprintf(stderr, "FAILED: xal_get_inode(); err(%d)\n", err);
 			goto exit;
 		}
 
@@ -294,6 +299,6 @@ exit:
 	xal_close(xal);
 	xnvme_dev_close(dev);
 
-	return -err;
+	return err;
 }
 
