@@ -67,3 +67,21 @@ def test_deep_path_fiemap_hashmap(cijoe):
             f"{mountpoint}/{DEEP_FILE}",
             "--backend fiemap --watch-mode dirty --file_lookup_map",
         )
+
+
+def test_root_xfs(cijoe):
+    """Resolve the root of the indexed tree, given as "/" on the XFS backend"""
+
+    assert not lookup(cijoe, "/", "--backend xfs")
+
+
+def test_root_fiemap(cijoe):
+    """The same on FIEMAP, where the root is the mountpoint and the modes must agree"""
+
+    with mounted(cijoe) as mountpoint:
+        for args in [
+            "--backend fiemap --watch-mode dirty",
+            "--backend fiemap --watch-mode dirty --file_lookup_map",
+        ]:
+            assert not lookup(cijoe, mountpoint, args)
+            assert not lookup(cijoe, f"{mountpoint}/", args)
