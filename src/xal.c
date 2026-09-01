@@ -394,12 +394,19 @@ xal_index(struct xal *xal)
 }
 
 static int
-_walk(struct xal *xal, struct xal_inode *inode, xal_walk_cb cb_func, void *cb_data, int depth)
+_walk(struct xal *xal, struct xal_inode *inode, xal_walk_cb cb_func, void *cb_data, int depth,
+	  int exp_seqlock)
 {
-	int err;
+	int act_seqlock, err;
 
 	if (xal_is_dirty(xal)) {
 		XAL_DEBUG("FAILED: File system has changed");
+		return -ESTALE;
+	}
+
+	act_seqlock = xal_get_seq_lock(xal);
+	if (exp_seqlock != act_seqlock) {
+		XAL_DEBUG("FAILED: Seqlock has changed");
 		return -ESTALE;
 	}
 
@@ -415,7 +422,7 @@ _walk(struct xal *xal, struct xal_inode *inode, xal_walk_cb cb_func, void *cb_da
 		struct xal_inode *inodes = xal_inode_at(xal, inode->content.dentries.inodes_idx);
 
 		for (uint32_t i = 0; i < inode->content.dentries.count; ++i) {
-			err = _walk(xal, &inodes[i], cb_func, cb_data, depth + 1);
+			err = _walk(xal, &inodes[i], cb_func, cb_data, depth + 1, exp_seqlock);
 			if (err) {
 				return err;
 			}
@@ -436,12 +443,28 @@ _walk(struct xal *xal, struct xal_inode *inode, xal_walk_cb cb_func, void *cb_da
 int
 xal_walk(struct xal *xal, struct xal_inode *inode, xal_walk_cb cb_func, void *cb_data)
 {
+	int exp_seqlock, act_seqlock, err;
+
 	if (xal_is_dirty(xal)) {
 		XAL_DEBUG("FAILED: File system has changed");
 		return -ESTALE;
 	}
 
-	return _walk(xal, inode, cb_func, cb_data, 0);
+	exp_seqlock = xal_get_seq_lock(xal);
+	if (exp_seqlock & 1) {
+		XAL_DEBUG("FAILED: Seqlock is odd; the pools are being rewritten");
+		return -ESTALE;
+	}
+
+	err = _walk(xal, inode, cb_func, cb_data, 0, exp_seqlock);
+
+	act_seqlock = xal_get_seq_lock(xal);
+	if (exp_seqlock != act_seqlock) {
+		XAL_DEBUG("FAILED: Seqlock has changed");
+		return -ESTALE;
+	}
+
+	return err;
 }
 
 struct xal_inode *
@@ -732,7 +755,7 @@ xal_inode_path(struct xal *xal, struct xal_inode *inode, char *buf, size_t buf_n
 	struct xal_backend_base *be;
 	const char *basepath = "";
 	size_t nbytes;
-	int err;
+	int exp_seqlock, act_seqlock, err;
 
 	if (!xal || !inode || !buf || !buf_nbytes) {
 		XAL_DEBUG("FAILED: invalid arguments");
@@ -741,6 +764,12 @@ xal_inode_path(struct xal *xal, struct xal_inode *inode, char *buf, size_t buf_n
 
 	if (xal_is_dirty(xal)) {
 		XAL_DEBUG("FAILED: File system has changed");
+		return -ESTALE;
+	}
+
+	exp_seqlock = xal_get_seq_lock(xal);
+	if (exp_seqlock & 1) {
+		XAL_DEBUG("FAILED: Seqlock is odd; the pools are being rewritten");
 		return -ESTALE;
 	}
 
@@ -771,6 +800,13 @@ xal_inode_path(struct xal *xal, struct xal_inode *inode, char *buf, size_t buf_n
 		}
 		buf[nbytes++] = '/';
 		buf[nbytes] = '\0';
+	}
+
+	act_seqlock = xal_get_seq_lock(xal);
+	if (exp_seqlock != act_seqlock) {
+		XAL_DEBUG("FAILED: Seqlock has changed");
+		buf[0] = '\0';
+		return -ESTALE;
 	}
 
 	return (int)nbytes;
@@ -959,10 +995,10 @@ int
 xal_get_inode(struct xal *xal, char *path, struct xal_inode **inode)
 {
 	struct xal_backend_base *be;
-	int err = 0;
+	int exp_seqlock, act_seqlock, err = 0;
 
-	if (!xal) {
-		XAL_DEBUG("FAILED: no xal given");
+	if (!xal || !inode) {
+		XAL_DEBUG("FAILED: no xal and/or inode given");
 		return -EINVAL;
 	}
 
@@ -976,6 +1012,12 @@ xal_get_inode(struct xal *xal, char *path, struct xal_inode **inode)
 		return -ESTALE;
 	}
 
+	exp_seqlock = xal_get_seq_lock(xal);
+	if (exp_seqlock & 1) {
+		XAL_DEBUG("FAILED: Seqlock is odd; the pools are being rewritten");
+		return -ESTALE;
+	}
+
 	if (xal->root_idx == XAL_POOL_IDX_NONE) {
 		XAL_DEBUG("FAILED: Missing call to xal_index()");
 		return -EINVAL;
@@ -985,12 +1027,21 @@ xal_get_inode(struct xal *xal, char *path, struct xal_inode **inode)
 
 	switch (be->type) {
 	case XAL_BACKEND_XFS:
-		return search_by_traversal(xal, xal_inode_at(xal, xal->root_idx), path, "", inode);
+		err = search_by_traversal(xal, xal_inode_at(xal, xal->root_idx), path, "", inode);
+		break;
 	case XAL_BACKEND_FIEMAP:
-		return xal_be_fiemap_get_inode(xal, path, inode);
+		err = xal_be_fiemap_get_inode(xal, path, inode);
+		break;
 	default:
 		XAL_DEBUG("Failed: Unknown backend type(%d)", be->type);
 		err = -EINVAL;
+	}
+
+	act_seqlock = xal_get_seq_lock(xal);
+	if (exp_seqlock != act_seqlock) {
+		XAL_DEBUG("FAILED: Seqlock has changed");
+		*inode = NULL;
+		return -ESTALE;
 	}
 
 	return err;
