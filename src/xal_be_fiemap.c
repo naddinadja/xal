@@ -1176,6 +1176,8 @@ int
 xal_be_fiemap_get_inode(struct xal *xal, char *path, struct xal_inode **inode)
 {
 	struct xal_be_fiemap *be;
+	char *basepath, *remainder;
+	size_t basepath_len;
 	int err;
 
 	if (!xal) {
@@ -1195,22 +1197,30 @@ xal_be_fiemap_get_inode(struct xal *xal, char *path, struct xal_inode **inode)
 		return -EINVAL;
 	}
 
+	basepath = be->subtree ? be->subtree : be->mountpoint;
+	basepath_len = strlen(basepath);
+
+	if (strncmp(path, basepath, basepath_len) == 0) {
+		remainder = path + basepath_len;
+
+		if (!remainder[0] || strcmp(remainder, "/") == 0) {
+			*inode = xal_inode_at(xal, xal->root_idx);
+			return 0;
+		}
+	}
+
 	if (be->path_inode_map) {
 		kh_path_to_inode_t *map = be->path_inode_map;
 		khiter_t iter = kh_get(path_to_inode, map, path);
 
 		if (iter == kh_end(map)) {
 			XAL_DEBUG("FAILED: kh_get(%s)", path);
-			return -EINVAL;
+			return -ENOENT;
 		}
 
 		*inode = kh_val(map, iter);
 
 	} else {
-		// Match the basepath to the indexed tree root: when a subtree is set the walk is rerooted
-		// at it, so strip the subtree prefix (not the mountpoint) from the query.
-		char *basepath = be->subtree ? be->subtree : be->mountpoint;
-
 		err = search_by_traversal(xal, xal_inode_at(xal, xal->root_idx), path, basepath, inode);
 		if (err) {
 			XAL_DEBUG("FAILED: search_by_traversal(%s); err(%d)", path, err);
