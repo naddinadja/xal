@@ -478,17 +478,18 @@ xal_watch_filesystem(struct xal *xal, xal_dirty_cb cb, void *cb_args)
 	be->inotify->cb_args = cb_args;
 	atomic_store(&be->inotify->stop, false);
 
+	// Set before pthread_create() to eliminate race between main and watch thread in
+	// setting and clearing the bit.
+	atomic_fetch_or(&be->inotify->flag, XAL_BE_FIEMAP_INOTIFY_RUNNING);
+
 	err = pthread_create(&be->inotify->watch_thread_id, NULL, &background_thread_start, xal);
 	if (err) {
 		XAL_DEBUG("FAILED: pthread_create(); err(%d)", err);
+		atomic_fetch_and(&be->inotify->flag, ~XAL_BE_FIEMAP_INOTIFY_RUNNING);
 		return -err;
 	}
 
-	/* Raised here rather than by the thread itself: until this store, watch_thread_id names no
-	 * thread the reapers may touch, and a RUNNING raised by the thread would leave a window in
-	 * which a started thread looks stopped. */
-	atomic_fetch_or(&be->inotify->flag,
-			XAL_BE_FIEMAP_INOTIFY_RUNNING | XAL_BE_FIEMAP_INOTIFY_JOINABLE);
+	atomic_fetch_or(&be->inotify->flag, XAL_BE_FIEMAP_INOTIFY_JOINABLE);
 
 	return 0;
 }

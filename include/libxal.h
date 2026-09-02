@@ -339,6 +339,11 @@ typedef void (*xal_dirty_cb)(struct xal *xal, void *cb_args);
  *
  * If these assumptions do not hold, this will result in an error.
  *
+ * This call, xal_stop_watching_filesystem() and xal_close() share the watch thread state and
+ * require external serialisation, including against themselves: two concurrent calls here can
+ * each create a thread, leaving one of them unjoinable, and two concurrent stops can join the
+ * same thread twice.
+ *
  * @param xal     The xal struct obtained when opened with xal_open().
  * @param cb      Optional callback invoked when xal becomes dirty. May be NULL.
  * @param cb_args Opaque pointer forwarded to cb. May be NULL.
@@ -357,6 +362,8 @@ xal_watch_filesystem(struct xal *xal, xal_dirty_cb cb, void *cb_args);
  *  - the background thread is running, see`xal_watch_filesystem()`.
  * 
  * If these assumptions do not hold, this will result in an error.
+ * 
+ * Requires the same external serialisation as xal_watch_filesystem().
  * 
  * @returns On success, 0 is returned. On error, negative errno is returned to indicate the error.
  */
