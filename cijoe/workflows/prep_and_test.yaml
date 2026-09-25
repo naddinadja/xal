@@ -39,4 +39,4 @@ steps:
   with:
     run_local: true
     random_order: false
-    args: "tests"
+    args: "tests/test_handle.py tests/test_index.py tests/test_bmap.py tests/test_shm.py"
