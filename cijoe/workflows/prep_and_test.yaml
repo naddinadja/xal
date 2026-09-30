@@ -40,3 +40,21 @@ steps:
     run_local: true
     random_order: false
     args: "tests/test_handle.py tests/test_index.py tests/test_bmap.py tests/test_shm.py"
+
+- name: prep_mount
+  uses: prep_files
+  with:
+    dev-path: '{{ config.xal.dev_path }}'
+    mountpoint: '{{ config.xal.mountpoint }}'
+    keep_mounted: true
+    skip_populate: true
+
+- name: test_lookup
+  uses: core.testrunner
+  with:
+    run_local: true
+    random_order: false
+    args: "tests/test_lookup.py"
+
+- name: teardown
+  run: sudo umount '{{ config.xal.mountpoint }}' || true
