@@ -17,3 +17,11 @@ def fiemap_cmd(cijoe) -> str:
         pytest.skip("the fiemap backend requires the device to be mounted")
 
     return "sudo xal --backend fiemap"
+
+
+@pytest.fixture
+def require_mount(cijoe):
+    """Skip the test when the device is not mounted."""
+
+    if not _is_mounted(cijoe):
+        pytest.skip("the test requires the device to be mounted")
