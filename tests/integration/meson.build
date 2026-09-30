@@ -1,5 +1,6 @@
 test_sources = [
   'test_inotify.c',
+  'test_shm.c',
 ]
 
 foreach src : test_sources
