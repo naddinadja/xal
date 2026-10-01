@@ -36,3 +36,18 @@ def test_lookup_compare_to_xfs_bmap(cijoe, fiemap_cmd, lookup_arg):
             diffs.append({"path": path, "expected": expected, "got": got})
 
     assert not diffs
+
+
+def test_lookup_after_reindex(cijoe, require_mount):
+    """
+    Run the C integration test for lookups across a re-index against the XFS mountpoint: it
+    changes a directory tree between two calls to xal_index() and checks that lookups, by
+    traversal and through the hash map, follow the change.
+    """
+
+    mountpoint = cijoe.getconf("xal.mountpoint", None)
+    build_dir = cijoe.getconf("xal.build_dir", str(Path(__file__).parent.parent.parent / "build"))
+    binary = Path(build_dir) / "tests" / "integration" / "test_lookup_map"
+
+    err, state = cijoe.run(f"{binary} {mountpoint}")
+    assert not err, state.output()
