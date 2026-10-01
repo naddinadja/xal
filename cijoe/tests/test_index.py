@@ -3,7 +3,7 @@ from pprint import pprint
 from pathlib import Path
 
 
-def test_compare_to_find(cijoe):
+def test_compare_to_find(cijoe, xal_cmd):
 
     dev_path = cijoe.getconf("xal.dev_path", None)
     mountpoint = cijoe.getconf("xal.mountpoint", None)
@@ -18,7 +18,7 @@ def test_compare_to_find(cijoe):
     }
 
     # Have 'xal' produce the 'find-like' index
-    err, state = cijoe.run(f"xal --find {dev_path} > {paths['xal']}")
+    err, state = cijoe.run(f"{xal_cmd} --find {dev_path} > {paths['xal']}")
     assert not err
 
     for key, path in paths.items():

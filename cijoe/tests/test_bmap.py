@@ -5,7 +5,7 @@ import json
 import yaml
 
 
-def test_compare_to_xfs_bmap(cijoe):
+def test_compare_to_xfs_bmap(cijoe, xal_cmd):
 
     dev_path = cijoe.getconf("xal.dev_path", None)
     mountpoint = cijoe.getconf("xal.mountpoint", None)
@@ -16,7 +16,7 @@ def test_compare_to_xfs_bmap(cijoe):
 
         xal_bmap_path = artifacts_path / "xal_bmap.yaml"
 
-        err, state = cijoe.run(f"xal --bmap {dev_path} > {xal_bmap_path}")
+        err, state = cijoe.run(f"{xal_cmd} --bmap {dev_path} > {xal_bmap_path}")
         assert not err
 
         xal_bmap = {}
