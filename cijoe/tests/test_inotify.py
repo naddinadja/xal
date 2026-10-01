@@ -42,3 +42,33 @@ def test_inotify_on_xfs(cijoe):
 
     err, state = cijoe.run(f"{binary} {mountpoint}")
     assert not err, state.output()
+
+
+def _watch_binary(cijoe) -> str:
+    """Return the absolute path to the test_watch binary."""
+
+    build_dir = cijoe.getconf("xal.build_dir", str(Path(__file__).parent.parent.parent / "build"))
+    return str(Path(build_dir) / "tests" / "integration" / "test_watch")
+
+
+def test_watch_lifecycle_on_tmpfs(cijoe):
+    """
+    Run the watch thread lifecycle tests under /tmp as an unprivileged user. The test that needs
+    root to mount and unmount a tmpfs is skipped.
+    """
+
+    err, state = cijoe.run(_watch_binary(cijoe))
+    assert not err, state.output()
+
+
+def test_watch_lifecycle_on_xfs(cijoe):
+    """
+    Run the watch thread lifecycle tests against the XFS mountpoint as root, which includes
+    stopping a watch thread that exited on its own when its filesystem was unmounted.
+    """
+
+    mountpoint = cijoe.getconf("xal.mountpoint", None)
+    assert mountpoint, "xal.mountpoint must be set in the config"
+
+    err, state = cijoe.run(f"sudo {_watch_binary(cijoe)} {mountpoint}")
+    assert not err, state.output()

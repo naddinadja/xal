@@ -2,6 +2,7 @@ test_sources = [
   'test_inotify.c',
   'test_lookup_map.c',
   'test_shm.c',
+  'test_watch.c',
 ]
 
 foreach src : test_sources
