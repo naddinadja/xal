@@ -54,7 +54,7 @@ steps:
   with:
     run_local: true
     random_order: false
-    args: "tests/test_index.py tests/test_bmap.py tests/test_lookup.py tests/test_shm.py"
+    args: "tests/test_index.py tests/test_bmap.py tests/test_lookup.py tests/test_shm.py tests/test_long_path.py"
 
 - name: teardown
   run: sudo umount '{{ config.xal.mountpoint }}' || true
